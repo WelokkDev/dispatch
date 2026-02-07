@@ -1,11 +1,5 @@
 import type { Call } from "../types";
-
-const priorityBadgeColor: Record<string, string> = {
-  P0: "bg-red-500 text-white",
-  P1: "bg-amber-500 text-white",
-  P2: "bg-blue-500 text-white",
-  P3: "bg-slate-400 text-white",
-};
+import { priorityColors, buttonColors, type Priority } from "../colors";
 
 interface CallDetailDrawerProps {
   call: Call | null;
@@ -64,7 +58,13 @@ export default function CallDetailDrawer({ call, isOpen, onClose }: CallDetailDr
           {/* Phone number + badges */}
           <h2 className="text-lg font-bold text-slate-900 tracking-tight">{call.numberMasked}</h2>
           <div className="flex items-center gap-2 mt-2">
-            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-lg ${priorityBadgeColor[call.priority]}`}>
+            <span 
+              className="text-[11px] font-bold px-2 py-0.5 rounded-lg"
+              style={{
+                backgroundColor: priorityColors[call.priority as Priority].solid,
+                color: "#ffffff",
+              }}
+            >
               {call.priority}
             </span>
             <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center">
@@ -156,10 +156,25 @@ export default function CallDetailDrawer({ call, isOpen, onClose }: CallDetailDr
 
         {/* Action Buttons */}
         <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
-          <button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2.5 px-4 rounded-xl transition-colors shadow-sm shadow-blue-200 cursor-pointer">
+          <button 
+            className="flex-1 text-sm font-semibold py-2.5 px-4 rounded-xl transition-colors shadow-sm cursor-pointer hover:opacity-90"
+            style={{
+              backgroundColor: buttonColors.primary.bg,
+              color: buttonColors.primary.text,
+              boxShadow: `0 1px 2px ${buttonColors.primary.shadow}`,
+            }}
+          >
             Send to responders
           </button>
-          <button className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold py-2.5 px-4 rounded-xl transition-colors border border-slate-200 cursor-pointer">
+          <button 
+            className="flex-1 text-sm font-semibold py-2.5 px-4 rounded-xl transition-colors cursor-pointer hover:opacity-80"
+            style={{
+              backgroundColor: buttonColors.secondary.bg,
+              color: buttonColors.secondary.text,
+              borderWidth: "1px",
+              borderColor: buttonColors.secondary.border,
+            }}
+          >
             Mark in progress
           </button>
         </div>

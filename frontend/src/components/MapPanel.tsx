@@ -2,15 +2,9 @@ import { useEffect, useRef, useMemo } from "react";
 import Map, { Marker, type MapRef } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Call } from "../types";
+import { priorityColors, type Priority } from "../colors";
 
 const BASEMAP_STYLE = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
-
-const pinColors: Record<string, string> = {
-  P0: "#ef4444",
-  P1: "#f59e0b",
-  P2: "#3b82f6",
-  P3: "#94a3b8",
-};
 
 interface MapPanelProps {
   calls: Call[];
@@ -88,7 +82,7 @@ export default function MapPanel({ calls, selectedId, onSelectCall }: MapPanelPr
             }}
           >
             <MapPinSvg
-              color={pinColors[call.priority]}
+              color={priorityColors[call.priority as Priority].solid}
               isSelected={call.id === selectedId}
             />
           </Marker>

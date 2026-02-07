@@ -1,18 +1,5 @@
 import type { Call } from "../types";
-
-const priorityColor: Record<string, string> = {
-  P0: "bg-red-100 text-red-700 border-red-200",
-  P1: "bg-amber-100 text-amber-700 border-amber-200",
-  P2: "bg-blue-100 text-blue-700 border-blue-200",
-  P3: "bg-slate-100 text-slate-500 border-slate-200",
-};
-
-const priorityDot: Record<string, string> = {
-  P0: "bg-red-500",
-  P1: "bg-amber-500",
-  P2: "bg-blue-400",
-  P3: "bg-slate-400",
-};
+import { priorityColors, statusColors, type Priority } from "../colors";
 
 function MiniWaveform() {
   return (
@@ -20,8 +7,12 @@ function MiniWaveform() {
       {[0, 0.15, 0.3, 0.15, 0].map((delay, i) => (
         <div
           key={i}
-          className="w-[2px] rounded-full bg-emerald-400 waveform-bar"
-          style={{ animationDelay: `${delay}s`, height: "4px" }}
+          className="w-[2px] rounded-full waveform-bar"
+          style={{ 
+            animationDelay: `${delay}s`, 
+            height: "4px",
+            backgroundColor: statusColors.aiHandling.waveform,
+          }}
         />
       ))}
     </div>
@@ -40,9 +31,14 @@ export default function CallCard({ call, isSelected, onSelect }: CallCardProps) 
       onClick={() => onSelect(call)}
       className={`w-full text-left p-3 rounded-2xl border transition-all cursor-pointer ${
         isSelected
-          ? "bg-white border-blue-200 shadow-md shadow-blue-100/50 ring-1 ring-blue-100"
-          : "bg-white/60 border-slate-100 hover:bg-white hover:border-slate-200 hover:shadow-sm"
+          ? "bg-white border-blue-200 ring-1 ring-blue-100"
+          : "bg-white/60 border-slate-100 hover:bg-white hover:border-slate-200"
       }`}
+      style={{
+        boxShadow: isSelected
+          ? "-4px 4px 12px rgba(148, 163, 184, 0.25), 0 2px 4px rgba(148, 163, 184, 0.1)"
+          : "-2px 2px 8px rgba(148, 163, 184, 0.15)",
+      }}
     >
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-sm font-semibold text-slate-800 tracking-tight">
@@ -50,7 +46,12 @@ export default function CallCard({ call, isSelected, onSelect }: CallCardProps) 
         </span>
         <div className="flex items-center gap-2">
           <span
-            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${priorityColor[call.priority]}`}
+            className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border"
+            style={{
+              backgroundColor: priorityColors[call.priority as Priority].bg,
+              color: priorityColors[call.priority as Priority].text,
+              borderColor: priorityColors[call.priority as Priority].border,
+            }}
           >
             {call.priority}
           </span>
@@ -73,7 +74,10 @@ export default function CallCard({ call, isSelected, onSelect }: CallCardProps) 
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className={`w-1.5 h-1.5 rounded-full ${priorityDot[call.priority]}`} />
+          <div 
+            className="w-1.5 h-1.5 rounded-full" 
+            style={{ backgroundColor: priorityColors[call.priority as Priority].solid }}
+          />
           <span className="text-[11px] text-slate-400">{call.status}</span>
           {call.aiHandling && <MiniWaveform />}
         </div>
