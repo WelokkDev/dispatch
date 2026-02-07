@@ -162,6 +162,80 @@ Phone (or "undefined"):"""
     return (response.text or "").strip()
 
 
+# -----------------------------------------------------------------------------
+# Urgency assessment: called EVERY turn before any extraction or generation.
+# Returns one of P0, P1, P2, P3 based on the full conversation so far.
+# Urgency can escalate (or de-escalate) as the caller reveals more.
+# -----------------------------------------------------------------------------
+
+# P0 = immediate life threat, transfer now.  P1 = urgent, fast-track collection.
+# P2 = moderate, normal flow.  P3 = low / non-emergency, normal flow.
+FEW_SHOT_URGENCY = [
+    # (convo_snippet, expected_urgency)
+    # P0: someone is dying, active violence, fire with people trapped
+    ("Caller: HELP! He's stabbing someone!", "P0"),
+    ("Caller: My house is on fire and my kids are inside!", "P0"),
+    ("Caller: He's not breathing, oh god please help!", "P0"),
+    # P1: serious but not immediately life-threatening
+    ("Caller: There's been a car accident, someone looks hurt.", "P1"),
+    ("Caller: I think my neighbor is having a heart attack.", "P1"),
+    # P2: moderate, property crime, non-injury situations
+    ("Caller: Someone is breaking into my neighbor's car.", "P2"),
+    ("Caller: There's a suspicious person walking around.", "P2"),
+    # P3: low priority, non-emergency
+    ("Caller: My cat is stuck in a tree.", "P3"),
+    ("Caller: I want to report a noise complaint.", "P3"),
+]
+
+
+def assess_urgency(convo: str) -> str:
+    """
+    Assess the urgency of the call based on the FULL conversation so far.
+    Called every turn so urgency can change as new info is revealed.
+    Returns exactly one of: "P0", "P1", "P2", "P3".
+
+    P0 = Immediate life threat (active violence, not breathing, fire with people).
+         -> Transfer to human operator immediately, skip remaining questions.
+    P1 = Urgent (injuries, heart attack, serious accident).
+         -> Fast-track: collect emergency + location only, then transfer.
+    P2 = Moderate (property crime, suspicious activity).
+         -> Normal flow: collect all four fields, generate dispatcher lines, hang up.
+    P3 = Low / non-emergency (noise complaint, cat in tree).
+         -> Normal flow, advise caller this may not be a 911 matter.
+    """
+    # Prompt design: few-shot teaches the four levels; we pass the FULL convo
+    # so the model sees everything (e.g. caller starts calm then escalates).
+    few_shot_block = "\n".join(
+        f"Conversation: {c}\nUrgency: {u}" for c, u in FEW_SHOT_URGENCY
+    )
+    prompt = f"""You are a 911 dispatch urgency analyst. Based on the full conversation, assign exactly one urgency level. Consider the caller's tone, words, and the nature of the situation.
+
+Levels:
+- P0: Immediate life threat (someone dying, active violence, fire with people trapped, not breathing)
+- P1: Urgent (serious injury, heart attack, major accident with injuries)
+- P2: Moderate (property crime, suspicious activity, non-injury situations)
+- P3: Low / non-emergency (noise complaint, animal rescue, information request)
+
+Examples:
+{few_shot_block}
+
+Current conversation:
+{convo}
+
+Respond with ONLY the urgency level (P0, P1, P2, or P3):"""
+    client = _get_client()
+    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+    text = (response.text or "").strip().upper()
+    # Parse: accept "P0", "P1", "P2", "P3" only; default to P2 if model returns garbage.
+    if text in ("P0", "P1", "P2", "P3"):
+        return text
+    # Try to find a valid level in the response (model might say "P0 - immediate...")
+    for level in ("P0", "P1", "P2", "P3"):
+        if level in text:
+            return level
+    return "P2"  # Safe default: moderate, normal flow.
+
+
 def generate_next_dispatcher_line(
     convo: str, count: int, should_end_call: bool
 ) -> str:

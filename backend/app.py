@@ -66,21 +66,57 @@ def voice_intake():
 call_states: dict[str, CallState] = {}
 
 
-def handle_caller_speech(call_id: str, voice_input: str) -> tuple[str, bool]:
+def handle_caller_speech(call_id: str, voice_input: str) -> dict:
     """
-    Process one caller utterance and return (spoken_line, hang_up).
-    Twilio /voice/respond handler should call this with CallSid and SpeechResult,
-    then speak spoken_line and hang up if hang_up is True.
-    If this is the first time we see call_id, we create initial state with the
-    first dispatcher line already in convo ("911, what is your emergency?").
+    Process one caller utterance and return a dict with everything the Twilio
+    handler and the frontend need.
+
+    Returns:
+        {
+            "spoken_line": str,   # What the AI says back to the caller
+            "hang_up": bool,      # True = end the call
+            "transfer": bool,     # True = transfer to human operator (P0/P1)
+            "urgency": str|None,  # Current urgency: P0, P1, P2, P3
+            "emergency": str|None,# Emergency type extracted so far
+            "location": str|None, # Location extracted so far
+            "name": str|None,     # Caller name extracted so far
+            "number": str|None,   # Phone number extracted so far
+            "transcript": str,    # Full conversation transcript
+            "call_id": str,       # The call identifier
+            "status": str,        # "in_progress", "transferred", or "completed"
+        }
     """
     if call_id not in call_states:
         # New call: initial state with first dispatcher line in transcript.
         call_states[call_id] = CallState(convo="Dispatcher: 911, what is your emergency?\n")
     state = call_states[call_id]
-    state, spoken_line, hang_up = generate_ai_response(state, voice_input)
+
+    # generate_ai_response now returns 4 values: (state, spoken_line, hang_up, transfer)
+    state, spoken_line, hang_up, transfer = generate_ai_response(state, voice_input)
     call_states[call_id] = state
-    return spoken_line, hang_up
+
+    # Determine call status for the frontend.
+    if transfer:
+        status = "transferred"
+    elif hang_up:
+        status = "completed"
+    else:
+        status = "in_progress"
+
+    # Return all data the frontend/Twilio handler needs.
+    return {
+        "spoken_line": spoken_line,
+        "hang_up": hang_up,
+        "transfer": transfer,
+        "urgency": state.urgency,
+        "emergency": state.emergency,
+        "location": state.location,
+        "name": state.name,
+        "number": state.number,
+        "transcript": state.convo,
+        "call_id": call_id,
+        "status": status,
+    }
 
 
 @app.route("/api/health")
