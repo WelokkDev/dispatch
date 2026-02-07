@@ -1,3 +1,8 @@
 Flask>=3.0.0
 flask-cors>=4.0.0
+<<<<<<< HEAD
 twilio 
+=======
+google-genai>=1.0.0
+python-dotenv>=1.0.0
+>>>>>>> f8b916565a364901514f6fe02c2aef16174875d0
