@@ -2,12 +2,10 @@
 AI service: Gemini calls for extraction (emergency, location, name, phone)
 and generation (next dispatcher line). Option A = few-shot prompts only;
 no RAG or fine-tuning. Each prompt is documented with intent and expected output.
+Uses the google-genai SDK (client.models.generate_content).
 """
 
-import copy
-from typing import Optional
-
-import google.generativeai as genai
+from google import genai
 
 # Import config so we can switch model in one place.
 from config import GEMINI_API_KEY, GEMINI_MODEL
@@ -15,18 +13,17 @@ from config import GEMINI_API_KEY, GEMINI_MODEL
 # -----------------------------------------------------------------------------
 # Gemini client (lazy init on first use so we don't fail if key is missing at import).
 # -----------------------------------------------------------------------------
-_model = None
+_client = None
 
 
-def _get_model():
-    """Return configured Gemini model; initializes client on first call."""
-    global _model
-    if _model is None:
+def _get_client():
+    """Return configured Gemini client; initializes on first call."""
+    global _client
+    if _client is None:
         if not GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is not set")
-        genai.configure(api_key=GEMINI_API_KEY)
-        _model = genai.GenerativeModel(GEMINI_MODEL)
-    return _model
+        _client = genai.Client(api_key=GEMINI_API_KEY)
+    return _client
 
 
 # -----------------------------------------------------------------------------
@@ -83,8 +80,8 @@ Current conversation:
 {convo}
 
 Emergency type (5 words or fewer):"""
-    model = _get_model()
-    response = model.generate_content(prompt)
+    client = _get_client()
+    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
     text = (response.text or "").strip()
     return text if text else "emergency"
 
@@ -107,8 +104,8 @@ Current conversation:
 {convo}
 
 Location (address/place or "undefined"):"""
-    model = _get_model()
-    response = model.generate_content(prompt)
+    client = _get_client()
+    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
     text = (response.text or "").strip().lower()
     if "undefined" in text or not text:
         return "undefined"
@@ -132,8 +129,8 @@ Current conversation:
 {convo}
 
 Name (or "undefined"):"""
-    model = _get_model()
-    response = model.generate_content(prompt)
+    client = _get_client()
+    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
     text = (response.text or "").strip()
     if text.lower() == "undefined" or not text:
         return "undefined"
@@ -157,8 +154,8 @@ Current conversation:
 {convo}
 
 Phone (or "undefined"):"""
-    model = _get_model()
-    response = model.generate_content(prompt)
+    client = _get_client()
+    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
     text = (response.text or "").strip().lower()
     if "undefined" in text or not text:
         return "undefined"
@@ -191,8 +188,8 @@ Your job is to create a report for this emergency; a human dispatcher will follo
 {instruction}
 
 Dispatcher:"""
-    model = _get_model()
-    response = model.generate_content(prompt)
+    client = _get_client()
+    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
     text = (response.text or "").strip()
     if not text:
         return "Thank you for providing all of this information. A 911 dispatcher will get in contact with you as soon as possible."
