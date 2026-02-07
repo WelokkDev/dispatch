@@ -23,7 +23,7 @@ export interface Call {
   keyFacts: string[];
   elapsed: string;
   aiHandling: boolean;
-  pinPosition: { top: string; left: string };
+  pin: { lat: number; lng: number };
 }
 
 export type PriorityFilter = "All" | "P0" | "P1" | "P2" | "P3";

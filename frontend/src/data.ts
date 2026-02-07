@@ -1,5 +1,6 @@
 import type { Call } from "./types";
 
+// Seattle-area coordinates for demo
 export const calls: Call[] = [
   {
     id: "1",
@@ -28,7 +29,7 @@ export const calls: Call[] = [
     ],
     elapsed: "29:41",
     aiHandling: true,
-    pinPosition: { top: "38%", left: "52%" },
+    pin: { lat: 47.6375, lng: -122.2885 },
   },
   {
     id: "2",
@@ -55,7 +56,7 @@ export const calls: Call[] = [
     ],
     elapsed: "38:73",
     aiHandling: false,
-    pinPosition: { top: "25%", left: "38%" },
+    pin: { lat: 47.6512, lng: -122.3471 },
   },
   {
     id: "3",
@@ -82,7 +83,7 @@ export const calls: Call[] = [
     ],
     elapsed: "28:19",
     aiHandling: false,
-    pinPosition: { top: "20%", left: "62%" },
+    pin: { lat: 47.6742, lng: -122.3008 },
   },
   {
     id: "4",
@@ -108,7 +109,7 @@ export const calls: Call[] = [
     ],
     elapsed: "10:10",
     aiHandling: true,
-    pinPosition: { top: "55%", left: "45%" },
+    pin: { lat: 47.6145, lng: -122.3178 },
   },
   {
     id: "5",
@@ -133,7 +134,7 @@ export const calls: Call[] = [
     ],
     elapsed: "02:25",
     aiHandling: false,
-    pinPosition: { top: "15%", left: "55%" },
+    pin: { lat: 47.6615, lng: -122.3128 },
   },
   {
     id: "6",
@@ -158,7 +159,7 @@ export const calls: Call[] = [
     ],
     elapsed: "18:02",
     aiHandling: false,
-    pinPosition: { top: "22%", left: "30%" },
+    pin: { lat: 47.6685, lng: -122.3842 },
   },
   {
     id: "7",
@@ -183,12 +184,12 @@ export const calls: Call[] = [
     ],
     elapsed: "16:47",
     aiHandling: true,
-    pinPosition: { top: "30%", left: "35%" },
+    pin: { lat: 47.6518, lng: -122.3502 },
   },
   {
     id: "8",
     numberMasked: "(206) 555-3939",
-    priority: "P4" as "P3",
+    priority: "P3",
     incidentType: "Suspicious Activity",
     incidentIcon: "👁",
     status: "Queued",
@@ -208,7 +209,7 @@ export const calls: Call[] = [
     ],
     elapsed: "33:59",
     aiHandling: false,
-    pinPosition: { top: "42%", left: "38%" },
+    pin: { lat: 47.6262, lng: -122.3385 },
   },
   {
     id: "9",
@@ -234,6 +235,6 @@ export const calls: Call[] = [
     ],
     elapsed: "26:03",
     aiHandling: true,
-    pinPosition: { top: "65%", left: "42%" },
+    pin: { lat: 47.6022, lng: -122.3340 },
   },
 ];
