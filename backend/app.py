@@ -1,10 +1,8 @@
-<<<<<<< HEAD
 import os
 import uuid
 from datetime import datetime
 from flask import Flask, request
 from twilio.twiml.voice_response import VoiceResponse
-=======
 """
 Dispatch backend: Flask app, health/api routes, and call handling.
 Twilio routes (e.g. POST /voice/incoming, POST /voice/respond) will be added here
@@ -16,13 +14,11 @@ load_dotenv()
 
 from flask import Flask, jsonify
 from flask_cors import CORS
->>>>>>> f8b916565a364901514f6fe02c2aef16174875d0
 
 from services.triage import CallState, generate_ai_response
 
 app = Flask(__name__)
 
-<<<<<<< HEAD
 # Mock database to store call metadata
 call_logs = {}
 
@@ -66,7 +62,6 @@ def voice_intake():
     print(f"Log Created: {call_logs[session_id]}")
     
     return str(response)
-=======
 # Maps call_id (e.g. Twilio CallSid) to CallState. In production use Redis or a session store.
 call_states: dict[str, CallState] = {}
 
@@ -96,7 +91,6 @@ def health():
 @app.route("/api")
 def index():
     return jsonify({"message": "Dispatch API"})
->>>>>>> f8b916565a364901514f6fe02c2aef16174875d0
 
 
 if __name__ == "__main__":
