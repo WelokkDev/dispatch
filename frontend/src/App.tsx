@@ -3,7 +3,7 @@ import IconSidebar from "./components/IconSidebar";
 import CallList from "./components/CallList";
 import MapPanel from "./components/MapPanel";
 import CallDetailDrawer from "./components/CallDetailDrawer";
-import { fetchCalls } from "./api";
+import { fetchCalls, subscribeToEvents, type SSEEvent } from "./api";
 import type { Call } from "./types";
 
 export default function App() {
@@ -28,6 +28,38 @@ export default function App() {
       }
     }
     loadCalls();
+  }, []);
+
+  // Real-time: push call_created and transcript_update from backend (no DB poll)
+  useEffect(() => {
+    const handleEvent = (ev: SSEEvent) => {
+      if (ev.type === "call_created") {
+        setCalls((prev) => {
+          const exists = prev.some((c) => c.id === ev.call.id);
+          if (exists) return prev.map((c) => (c.id === ev.call.id ? { ...c, ...ev.call } : c));
+          return [ev.call, ...prev];
+        });
+        return;
+      }
+      if (ev.type === "transcript_update") {
+        const update = {
+          transcript: ev.transcript,
+          status: ev.status,
+          aiHandling: ev.aiHandling,
+          ...(ev.priority != null && { priority: ev.priority }),
+          ...(ev.incidentType != null && { incidentType: ev.incidentType }),
+          ...(ev.locationLabel != null && { locationLabel: ev.locationLabel, address: ev.locationLabel }),
+        };
+        setCalls((prev) =>
+          prev.map((c) => (c.id === ev.call_id ? { ...c, ...update } : c))
+        );
+        setSelectedCall((prev) =>
+          prev && prev.id === ev.call_id ? { ...prev, ...update } : prev
+        );
+      }
+    };
+    const unsubscribe = subscribeToEvents(handleEvent);
+    return unsubscribe;
   }, []);
 
   const handleSelectCall = (call: Call) => {

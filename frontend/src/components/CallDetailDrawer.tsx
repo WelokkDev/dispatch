@@ -136,6 +136,14 @@ export default function CallDetailDrawer({ call, isOpen, onClose }: CallDetailDr
               </div>
             </div>
           ))}
+          {/* Live: show typing indicator while AI is handling */}
+          {call.aiHandling && (
+            <div className="flex justify-start">
+              <div className="px-3.5 py-2.5 rounded-2xl rounded-tl-md bg-blue-50 border border-blue-100/50 text-slate-500 text-sm">
+                <span className="animate-pulse">...</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Incident Summary & Key Facts */}
@@ -164,7 +172,7 @@ export default function CallDetailDrawer({ call, isOpen, onClose }: CallDetailDr
               boxShadow: `0 1px 2px ${buttonColors.primary.shadow}`,
             }}
           >
-            Send to responders
+            Take Over Call
           </button>
           <button 
             className="flex-1 text-sm font-semibold py-2.5 px-4 rounded-xl transition-colors cursor-pointer hover:opacity-80"

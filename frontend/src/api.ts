@@ -5,7 +5,43 @@
 
 import type { Call } from "./types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL =
+  (import.meta.env.VITE_API_BASE_URL as string) || "http://127.0.0.1:5001";
+
+export type SSEEvent = { type: "call_created"; call: Call } | {
+  type: "transcript_update";
+  call_id: string;
+  transcript: Call["transcript"];
+  status: string;
+  aiHandling: boolean;
+  priority?: Call["priority"];
+  incidentType?: string;
+  locationLabel?: string;
+};
+
+/**
+ * Subscribe to real-time events (call_created, transcript_update).
+ * Returns a cleanup function to close the connection.
+ */
+export function subscribeToEvents(onEvent: (ev: SSEEvent) => void): () => void {
+  const url = `${API_BASE_URL}/api/events`;
+  const es = new EventSource(url);
+
+  es.onmessage = (e) => {
+    try {
+      const ev = JSON.parse(e.data) as SSEEvent;
+      onEvent(ev);
+    } catch {
+      // ignore parse errors / keepalive
+    }
+  };
+
+  es.onerror = () => {
+    es.close();
+  };
+
+  return () => es.close();
+}
 
 /**
  * Fetch all calls from the backend.

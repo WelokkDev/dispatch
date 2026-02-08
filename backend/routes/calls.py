@@ -6,6 +6,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 from bson import ObjectId
 from db import calls_collection, serialize_call
+from events import broadcast
 
 calls_bp = Blueprint("calls", __name__, url_prefix="/api/calls")
 
@@ -74,8 +75,12 @@ def create_call():
         
         # Insert into MongoDB
         calls_collection.insert_one(stub)
-        
-        return jsonify(serialize_call(stub)), 201
+
+        # Push to dashboard immediately (no DB poll delay)
+        payload = serialize_call(stub)
+        broadcast({"type": "call_created", "call": payload})
+
+        return jsonify(payload), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

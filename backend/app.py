@@ -11,10 +11,12 @@ Voice flow (turn-based):
 Text-based /api/chat endpoint is kept for testing without a phone.
 """
 
+import json
 import os
+import queue
 import time
 import threading
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response
 from twilio.twiml.voice_response import VoiceResponse, Gather
 
 from dotenv import load_dotenv
@@ -26,7 +28,8 @@ from services.triage import CallState, generate_ai_response
 from services.ai import generate_incident_summary
 from services.voice import generate_audio, precache_fixed_lines, AUDIO_DIR
 from routes.calls import calls_bp
-from db import persist_call_at_end
+from db import persist_call_at_end, parse_transcript
+from events import broadcast, subscribe, unsubscribe
 
 
 
@@ -44,13 +47,46 @@ app.register_blueprint(calls_bp)
 call_states: dict[str, CallState] = {}
 
 
+def _urgency_to_priority(urgency: str) -> str:
+    m = {"P0": "P1", "P1": "P2", "P2": "P3", "P3": "P4"}
+    return m.get(urgency, "P4")
+
+
+def _live_stub(call_id: str, number: str = None) -> dict:
+    """Build a minimal call dict for SSE (frontend shape, JSON-safe)."""
+    return {
+        "id": call_id,
+        "numberMasked": f"XXX-XXX-{str(number or '????')[-4:]}" if number and len(str(number)) >= 4 else "Unknown",
+        "priority": "P4",
+        "incidentType": "",
+        "incidentIcon": "",
+        "status": "AI handling",
+        "statusDetail": "",
+        "locationLabel": "",
+        "address": "",
+        "city": "",
+        "confidence": 0,
+        "inServiceArea": True,
+        "transcript": [],
+        "summary": "",
+        "keyFacts": [],
+        "elapsed": "00:00",
+        "aiHandling": True,
+        "pin": {"lat": 0, "lng": 0},
+    }
+
+
 def handle_caller_speech(call_id: str, voice_input: str) -> dict:
     """
     Process one caller utterance and return a dict with everything the Twilio
     handler and the frontend need.
     """
-    if call_id not in call_states:
+    is_new = call_id not in call_states
+    if is_new:
         call_states[call_id] = CallState(convo="Dispatcher: 911, what is your emergency?\n")
+        stub = _live_stub(call_id)
+        broadcast({"type": "call_created", "call": stub})
+
     state = call_states[call_id]
 
     state, spoken_line, hang_up, transfer = generate_ai_response(state, voice_input)
@@ -77,6 +113,19 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
         "status": status,
         "summary": "",
     }
+
+    transcript_list = parse_transcript(state.convo)
+    status_display = "AI → Human Takeover" if transfer else ("Completed" if hang_up else "AI handling")
+    broadcast({
+        "type": "transcript_update",
+        "call_id": call_id,
+        "transcript": transcript_list,
+        "status": status_display,
+        "aiHandling": not (hang_up or transfer),
+        "priority": _urgency_to_priority(state.urgency),
+        "incidentType": (state.emergency or "").replace("undefined", ""),
+        "locationLabel": (state.location or "").replace("undefined", ""),
+    })
 
     # Generate summary + persist to DB in background so we don't block the response.
     # The caller hears the final line immediately instead of waiting.
@@ -222,6 +271,32 @@ def voice_respond():
 # ═══════════════════════════════════════════════════════════════════════════════
 # Text-based test endpoint (unchanged — for testing without a phone)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/events")
+def events():
+    """Server-Sent Events: real-time call_created and transcript_update."""
+    def gen():
+        q = subscribe()
+        try:
+            while True:
+                try:
+                    event = q.get(timeout=30)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except queue.Empty:
+                    yield ": keepalive\n\n"
+        finally:
+            unsubscribe(q)
+
+    return Response(
+        gen(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
