@@ -199,15 +199,6 @@ export default function CallDetailDrawer({ call, isOpen, onClose }: CallDetailDr
           <h3 className="text-sm font-bold text-slate-800 mb-2">Incident Summary</h3>
           <p className="text-sm text-slate-600 leading-relaxed mb-4">{call.summary}</p>
 
-          <h3 className="text-sm font-bold text-slate-800 mb-2">Key Facts</h3>
-          <ul className="space-y-1.5">
-            {call.keyFacts.map((fact, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
-                <span className="text-sm text-slate-600">{fact}</span>
-              </li>
-            ))}
-          </ul>
         </div>
 
         {/* Action Buttons */}
@@ -221,17 +212,6 @@ export default function CallDetailDrawer({ call, isOpen, onClose }: CallDetailDr
             }}
           >
             Take Over Call
-          </button>
-          <button 
-            className="flex-1 text-sm font-semibold py-2.5 px-4 rounded-xl transition-colors cursor-pointer hover:opacity-80"
-            style={{
-              backgroundColor: buttonColors.secondary.bg,
-              color: buttonColors.secondary.text,
-              borderWidth: "1px",
-              borderColor: buttonColors.secondary.border,
-            }}
-          >
-            Mark in progress
           </button>
         </div>
       </div>
