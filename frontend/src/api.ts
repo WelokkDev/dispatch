@@ -27,6 +27,7 @@ export type SSEEvent =
       incidentType?: string;
       locationLabel?: string;
       pin?: { lat: number; lng: number };
+      confidence?: number;
     }
   | {
       type: "summary_update";

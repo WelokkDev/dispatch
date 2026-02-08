@@ -61,7 +61,7 @@ def _state_to_call_doc(call_id: str, state_data: dict, now: datetime) -> dict:
         "locationLabel": location,
         "address": location,
         "city": "",
-        "confidence": 0,
+        "confidence": state_data.get("confidence", 0),
         "inServiceArea": True,
         "transcript": transcript,
         "summary": state_data.get("summary", ""),
