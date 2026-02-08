@@ -17,11 +17,10 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 # Lazy-init Gradium client (created on first use so .env is loaded first).
 _client = None
 
-# Voice ID for "Emma" — pleasant, smooth US English female voice.
-VOICE_ID = "YTpq7expH9539ERJ"
 
 # Gradium server region — "us" or "eu". Change if your key is on a different region.
-GRADIUM_REGION = os.getenv("GRADIUM_REGION", "us")
+GRADIUM_REGION = os.getenv("GRADIUM_REGION")
+GRADIUM_VOICE_ID = os.getenv("GRADIUM_VOICE_ID")
 GRADIUM_BASE_URL = f"https://{GRADIUM_REGION}.api.gradium.ai/api/"
 
 
@@ -62,7 +61,7 @@ def generate_audio(text: str, label: str = "") -> str:
         result = await client.tts(
             setup={
                 "model_name": "default",
-                "voice_id": VOICE_ID,
+                "voice_id": GRADIUM_VOICE_ID,
                 "output_format": "wav",
             },
             text=text + " <flush>",
