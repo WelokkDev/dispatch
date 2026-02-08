@@ -11,14 +11,14 @@ from events import broadcast
 calls_bp = Blueprint("calls", __name__, url_prefix="/api/calls")
 
 
-def create_stub_call(number_masked: str, call_id: str = None) -> dict:
+def create_stub_call(phone_number: str, call_id: str = None) -> dict:
     """
     Create a stub call record with defaults.
     AI will populate fields as the conversation progresses.
     """
     return {
         "id": call_id or str(uuid.uuid4()),
-        "numberMasked": number_masked,
+        "numberMasked": (phone_number or "").strip() or "Unknown",
         "priority": "P4",  # Default lowest, AI updates via assess_urgency()
         "incidentType": "",  # AI fills from extract_emergency()
         "incidentIcon": "",
@@ -56,7 +56,7 @@ def create_call():
     Create a new stub call in MongoDB.
     
     Request body (JSON):
-        - numberMasked (required): Caller's masked phone number
+        - numberMasked (required): Caller's phone number (displayed as-is)
         - callId (optional): Custom call ID, otherwise UUID is generated
     
     Returns the created call record.
@@ -64,14 +64,14 @@ def create_call():
     try:
         data = request.get_json(force=True) if request.data else {}
         
-        number_masked = data.get("numberMasked")
-        if not number_masked:
+        phone_number = data.get("numberMasked")
+        if not phone_number:
             return jsonify({"error": "numberMasked is required"}), 400
         
         call_id = data.get("callId")
         
         # Create stub call
-        stub = create_stub_call(number_masked, call_id)
+        stub = create_stub_call(phone_number, call_id)
         
         # Insert into MongoDB
         calls_collection.insert_one(stub)

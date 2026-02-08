@@ -108,7 +108,10 @@ export default function MapPanel({ calls, selectedId, onSelectCall }: MapPanelPr
 
       {/* Location Validation Card */}
       {selectedCall && (
-        <div className="absolute bottom-6 left-6 bg-white/95 backdrop-blur-md rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-100 p-4 max-w-[320px] z-10">
+        <div
+        className="absolute bottom-6 left-6 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-100 p-4 max-w-[320px] z-10"
+        style={{ boxShadow: "-3px 3px 12px rgba(148, 163, 184, 0.28)" }}
+      >
           <div className="flex items-center gap-2 mb-3">
             <div className="w-7 h-7 rounded-full bg-emerald-50 flex items-center justify-center">
               <svg className="w-3.5 h-3.5 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">

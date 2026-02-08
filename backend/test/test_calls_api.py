@@ -22,13 +22,13 @@ def test_post_create_call():
     with app.test_client() as client:
         r = client.post(
             "/api/calls",
-            json={"numberMasked": "XXX-XXX-1234"},
+            json={"numberMasked": "+1 555-123-4567"},
             content_type="application/json",
         )
         assert r.status_code == 201, f"Expected 201, got {r.status_code}: {r.data}"
         data = r.get_json()
         assert "id" in data
-        assert data.get("numberMasked") == "XXX-XXX-1234"
+        assert data.get("numberMasked") == "+1 555-123-4567"
         assert data.get("priority") == "P4"
         assert data.get("status") == "AI handling"
         assert "pin" in data and data["pin"].get("lat") == 0

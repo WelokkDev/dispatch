@@ -30,13 +30,6 @@ def serialize_call(call: dict) -> dict:
     return call_dict
 
 
-def _mask_number(phone_number: str) -> str:
-    """Mask caller ID to last 4 digits."""
-    if not phone_number:
-        return "Unknown"
-    return f"XXX-XXX-{str(phone_number).strip()[-4:]}"
-
-
 def _state_to_call_doc(call_id: str, state_data: dict, now: datetime) -> dict:
     """Build a full call document from handle_caller_speech result."""
     urgency_to_priority = {"P0": "P1", "P1": "P2", "P2": "P3", "P3": "P4"}
@@ -59,7 +52,7 @@ def _state_to_call_doc(call_id: str, state_data: dict, now: datetime) -> dict:
 
     return {
         "id": call_id,
-        "numberMasked": _mask_number(state_data.get("number") or ""),
+        "numberMasked": (state_data.get("number") or "").strip() or "Unknown",
         "priority": priority,
         "incidentType": emergency,
         "incidentIcon": "",

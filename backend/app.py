@@ -127,7 +127,7 @@ def _live_stub(call_id: str, number: str = None) -> dict:
     """Build a minimal call dict for SSE (frontend shape, JSON-safe)."""
     return {
         "id": call_id,
-        "numberMasked": f"XXX-XXX-{str(number or '????')[-4:]}" if number and len(str(number)) >= 4 else "Unknown",
+        "numberMasked": (number and str(number).strip()) or "Unknown",
         "priority": "P4",
         "incidentType": "",
         "incidentIcon": "",
@@ -147,15 +147,16 @@ def _live_stub(call_id: str, number: str = None) -> dict:
     }
 
 
-def handle_caller_speech(call_id: str, voice_input: str) -> dict:
+def handle_caller_speech(call_id: str, voice_input: str, caller_phone: str = None) -> dict:
     """
     Process one caller utterance and return a dict with everything the Twilio
     handler and the frontend need.
+    caller_phone: optional; from Twilio request.form.get("From") so we show real number.
     """
     is_new = call_id not in call_states
     if is_new:
         call_states[call_id] = CallState(convo="Dispatcher: 911, what is your emergency?\n")
-        stub = _live_stub(call_id)
+        stub = _live_stub(call_id, caller_phone)
         broadcast({"type": "call_created", "call": stub})
 
     state = call_states[call_id]
@@ -329,9 +330,10 @@ def voice_respond():
         return str(response), 200, {"Content-Type": "text/xml"}
 
     try:
-        # Run the triage pipeline (Gemini calls)
+        # Run the triage pipeline (Gemini calls). Pass Twilio From so we show real number.
+        caller_phone = request.form.get("From")
         t0 = time.time()
-        result = handle_caller_speech(call_sid, speech_result)
+        result = handle_caller_speech(call_sid, speech_result, caller_phone=caller_phone)
         t_triage = time.time() - t0
 
         spoken_line = result["spoken_line"]
