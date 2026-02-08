@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import IconSidebar from "./components/IconSidebar";
 import CallList from "./components/CallList";
 import MapPanel from "./components/MapPanel";
 import CallDetailDrawer from "./components/CallDetailDrawer";
@@ -108,8 +107,7 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-[#f0f2f7]">
-      {/* Icon sidebar */}
-      <IconSidebar />
+    
 
       {/* Call list sidebar */}
       <CallList
