@@ -17,6 +17,8 @@ from flask_cors import CORS
 
 from services.triage import CallState, generate_ai_response
 
+
+
 app = Flask(__name__)
 
 # Mock database to store call metadata
@@ -27,41 +29,72 @@ def mask_number(phone_number):
     if not phone_number:
         return "Unknown"
     return f"XXX-XXX-{phone_number[-4:]}"
-
-@app.route("/voice", methods=['POST'])
+    
+@app.route("/voice", methods=["POST"])
 def voice_intake():
-    """Handle incoming 911-style demo calls."""
-    
-    # 1. Generate Unique Session ID
-    session_id = str(uuid.uuid4())
-    
-    # 2. Capture Metadata
-    raw_caller = request.values.get('From', '')
-    call_sid = request.values.get('CallSid', '') # Twilio's internal ID
-    timestamp = datetime.utcnow().isoformat()
-    
-    # 3. Process/Mask Data
-    masked_caller = mask_number(raw_caller)
-    
-    # Store in logs (In production, use a DB like PostgreSQL or Redis)
-    call_logs[session_id] = {
-        "call_sid": call_sid,
-        "timestamp": timestamp,
-        "caller": masked_caller,
-        "status": "in-progress"
-    }
-
-    # 4. Generate Twilio Response (TwiML)
     response = VoiceResponse()
-    response.say("Emergency dispatch demo. This call is being recorded and processed.", 
-                 voice='polly.Amy')
-    
-    # Example: Start a recording or gather input
-    # response.record(max_length=30, action='/handle-recording')
 
-    print(f"Log Created: {call_logs[session_id]}")
-    
+    response.start().stream(
+        url="wss://nonlegal-lorilee-unavailably.ngrok-free.dev/twilio-media"
+    )
+
     return str(response)
+
+@sock.route("/twilio-media")
+async def twilio_media(ws):
+    call_id = None
+    buffer = b""
+
+    async for message in ws:
+        data = json.loads(message)
+
+        if data["event"] == "start":
+            call_id = data["start"]["callSid"]
+            print(f"Call started: {call_id}")
+
+            # First dispatcher line via Gradium
+            await speak_to_caller(
+                ws,
+                "911. What is your emergency?"
+            )
+
+        elif data["event"] == "media":
+            # Incoming caller audio (μ-law 8kHz)
+            audio = base64.b64decode(data["media"]["payload"])
+            buffer += audio
+
+            # For now, just mock transcription trigger
+            if len(buffer) > 20000:  # ~1 sec
+                voice_input = "[caller speech placeholder]"
+                spoken_line, hang_up = handle_caller_speech(call_id, voice_input)
+
+                buffer = b""
+
+                await speak_to_caller(ws, spoken_line)
+
+                if hang_up:
+                    await ws.close()
+
+
+async def speak_to_caller(ws, text: str):
+    stream = await gradium_client.tts_stream(
+        setup={
+            "model_name": "default",
+            "voice_id": "YTpq7expH9539ERJ",
+            "output_format": "ulaw_8000"
+        },
+        text=text + " <flush>"
+    )
+
+    async for chunk in stream.iter_bytes():
+        payload = base64.b64encode(chunk).decode("utf-8")
+
+        await ws.send(json.dumps({
+            "event": "media",
+            "media": {
+                "payload": payload
+            }
+        }))
 # Maps call_id (e.g. Twilio CallSid) to CallState. In production use Redis or a session store.
 call_states: dict[str, CallState] = {}
 
