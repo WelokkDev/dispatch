@@ -349,17 +349,30 @@ def index():
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("  Dispatch backend starting on http://localhost:5001")
-    print("  Make sure ngrok is running:  ngrok http 5001")
-    print("  Then set Twilio webhook to:  https://<ngrok-url>/voice")
-    print("=" * 60)
+    port = int(os.environ.get("PORT", 5001))
+    debug = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true", "yes")
 
-    # Pre-cache all fixed dispatcher lines so calls get instant TTS responses.
-    # This runs once at startup (~15-20s) and eliminates TTS latency for ~90% of turns.
-    # The WERKZEUG_RUN_MAIN check avoids double-caching when Flask's debug reloader is active.
-    import os as _os
-    if _os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+    # Helpful startup banner (optional)
+    if debug:
+        print("=" * 60)
+        print(f"  [Dev] Dispatch backend starting on http://localhost:{port}")
+        print("  (If using Twilio locally, use ngrok and point webhooks to /voice)")
+        print("=" * 60)
+    else:
+        print("=" * 60)
+        print(f"  Dispatch backend starting on http://0.0.0.0:{port}")
+        print("=" * 60)
+
+    # ✅ Pre-cache once (avoid double-run when debug reloader is on)
+    should_precache = (not debug) or (os.environ.get("WERKZEUG_RUN_MAIN") == "true")
+    if should_precache:
         precache_fixed_lines()
 
-    app.run(port=5001, debug=True)
+    # ✅ Correct binding for Render / Railway
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=debug,
+        use_reloader=debug,  # reloader only in dev
+    )
+
