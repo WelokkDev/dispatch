@@ -1,14 +1,20 @@
 """
-AI service: Gemini calls for extraction (emergency, location, name, phone)
-and generation (next dispatcher line). Option A = few-shot prompts only;
-no RAG or fine-tuning. Each prompt is documented with intent and expected output.
+AI service: Gemini calls for extraction (emergency, location, name, phone),
+urgency assessment, and generation (next dispatcher line).
 Uses the google-genai SDK (client.models.generate_content).
+
+All calls share a single SYSTEM_INSTRUCTION that sets the role, tone, and
+rules for the model. Individual prompts only describe the specific task.
 """
 
 from google import genai
+from google.genai import types
 
 # Import config so we can switch model in one place.
 from config import GEMINI_API_KEY, GEMINI_MODEL
+
+# System prompt lives in its own file for easy editing.
+from services.system_prompt import SYSTEM_INSTRUCTION
 
 # -----------------------------------------------------------------------------
 # Gemini client (lazy init on first use so we don't fail if key is missing at import).
@@ -26,17 +32,37 @@ def _get_client():
     return _client
 
 
+def _generate(prompt: str) -> str:
+    """
+    Send a prompt to Gemini with the shared SYSTEM_INSTRUCTION.
+    Every call in this file goes through here so the system prompt is
+    always applied. Returns the raw response text (stripped).
+    """
+    client = _get_client()
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_INSTRUCTION,
+        ),
+    )
+    return (response.text or "").strip()
+
+
 # -----------------------------------------------------------------------------
 # Few-shot constants (Option A): 2–3 examples per task so the model sees
 # real-style inputs/outputs. Teaches "undefined" when caller doesn't provide info.
 # -----------------------------------------------------------------------------
 
 # Emergency: short label (under 5 words) for the nature of the emergency.
+# Returns "undefined" if the caller hasn't clearly stated what's happening.
 FEW_SHOT_EMERGENCY = [
     # (convo_snippet, expected_output)
     ("Caller: My dad fell and he's not moving.", "fall, unresponsive person"),
     ("Caller: There's a fire in the kitchen!", "kitchen fire"),
     ("Caller: Someone broke in and I'm hiding.", "break-in, intruder"),
+    ("Caller: HELP! Please help me!", "undefined"),  # Caller is panicked but hasn't said what's wrong
+    ("Caller: I need someone here now!", "undefined"),  # Urgent but no specific emergency stated
 ]
 
 # Location: address or place, or "undefined" if not given.
@@ -65,13 +91,14 @@ def extract_emergency(convo: str) -> str:
     """
     Extract the nature of the emergency from the conversation in under 5 words.
     Uses few-shot examples so the model returns a short label (e.g. "fall, unresponsive").
-    Returns a stripped string; we do not use "undefined" for emergency (caller always states something).
+    Returns "undefined" if the caller hasn't clearly stated what the emergency is
+    (e.g. just screaming "help!" without saying what's wrong). This lets the triage
+    layer re-ask: "Can you tell me what's happening?"
     """
-    # Prompt design: we need a compact label for triage/display; few-shot shows the format.
     few_shot_block = "\n".join(
         f"Conversation: {c}\nEmergency type: {e}" for c, e in FEW_SHOT_EMERGENCY
     )
-    prompt = f"""You are a 911 dispatch analyst. Extract only the nature of the emergency from the conversation, in 5 words or fewer.
+    prompt = f"""Extract only the nature of the emergency from the conversation, in 5 words or fewer. If the caller has NOT clearly stated what the emergency is, respond with exactly: undefined
 
 Examples:
 {few_shot_block}
@@ -79,11 +106,11 @@ Examples:
 Current conversation:
 {convo}
 
-Emergency type (5 words or fewer):"""
-    client = _get_client()
-    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    text = (response.text or "").strip()
-    return text if text else "emergency"
+Emergency type (5 words or fewer, or "undefined"):"""
+    text = _generate(prompt)
+    if not text or text.lower() == "undefined":
+        return "undefined"
+    return text
 
 
 def extract_location(convo: str) -> str:
@@ -91,11 +118,10 @@ def extract_location(convo: str) -> str:
     Extract the caller's location/address from the conversation.
     Uses few-shot; returns "undefined" (lowercase) when the caller does not give a location.
     """
-    # Prompt design: we need address or place for dispatch; few-shot teaches "undefined" when not provided.
     few_shot_block = "\n".join(
         f"Conversation: {c}\nLocation: {e}" for c, e in FEW_SHOT_LOCATION
     )
-    prompt = f"""You are a 911 dispatch analyst. Extract the caller's location or address from the conversation. If the caller does not give any location, respond with exactly: undefined
+    prompt = f"""Extract the caller's location or address from the conversation. If the caller does not give any location, respond with exactly: undefined
 
 Examples:
 {few_shot_block}
@@ -104,9 +130,7 @@ Current conversation:
 {convo}
 
 Location (address/place or "undefined"):"""
-    client = _get_client()
-    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    text = (response.text or "").strip().lower()
+    text = _generate(prompt).lower()
     if "undefined" in text or not text:
         return "undefined"
     return text
@@ -120,7 +144,7 @@ def extract_name(convo: str) -> str:
     few_shot_block = "\n".join(
         f"Conversation: {c}\nName: {e}" for c, e in FEW_SHOT_NAME
     )
-    prompt = f"""You are a 911 dispatch analyst. Extract the caller's name from the conversation. If the caller does not give a name, respond with exactly: undefined
+    prompt = f"""Extract the caller's name from the conversation. If the caller does not give a name, respond with exactly: undefined
 
 Examples:
 {few_shot_block}
@@ -129,9 +153,7 @@ Current conversation:
 {convo}
 
 Name (or "undefined"):"""
-    client = _get_client()
-    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    text = (response.text or "").strip()
+    text = _generate(prompt)
     if text.lower() == "undefined" or not text:
         return "undefined"
     return text
@@ -145,7 +167,7 @@ def extract_phone(convo: str) -> str:
     few_shot_block = "\n".join(
         f"Conversation: {c}\nPhone: {e}" for c, e in FEW_SHOT_PHONE
     )
-    prompt = f"""You are a 911 dispatch analyst. Extract the caller's phone number from the conversation. If the caller does not give a number, respond with exactly: undefined
+    prompt = f"""Extract the caller's phone number from the conversation. If the caller does not give a number, respond with exactly: undefined
 
 Examples:
 {few_shot_block}
@@ -154,12 +176,77 @@ Current conversation:
 {convo}
 
 Phone (or "undefined"):"""
-    client = _get_client()
-    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    text = (response.text or "").strip().lower()
+    raw = _generate(prompt)
+    text = raw.lower()
     if "undefined" in text or not text:
         return "undefined"
-    return (response.text or "").strip()
+    return raw
+
+
+# -----------------------------------------------------------------------------
+# Urgency assessment: called EVERY turn before any extraction or generation.
+# Returns one of P0, P1, P2, P3 based on the full conversation so far.
+# Urgency can escalate (or de-escalate) as the caller reveals more.
+# -----------------------------------------------------------------------------
+
+# P0 = immediate life threat, transfer now. 
+# P1 = urgent, fast-track collection.
+# P2 = moderate, normal flow.  
+# P3 = low / non-emergency, normal flow.
+FEW_SHOT_URGENCY = [
+    # (convo_snippet, expected_urgency)
+    # P0: someone is dying, active violence, fire with people trapped
+    ("Caller: HELP! He's stabbing someone!", "P0"),
+    ("Caller: My house is on fire and my kids are inside!", "P0"),
+    ("Caller: He's not breathing, oh god please help!", "P0"),
+    # P1: serious but not immediately life-threatening
+    ("Caller: There's been a car accident, someone looks hurt.", "P1"),
+    ("Caller: I think my neighbor is having a heart attack.", "P1"),
+    # P2: moderate, property crime, non-injury situations
+    ("Caller: Someone is breaking into my neighbor's car.", "P2"),
+    ("Caller: There's a suspicious person walking around.", "P2"),
+    # P3: low priority, non-emergency
+    ("Caller: My cat is stuck in a tree.", "P3"),
+    ("Caller: I want to report a noise complaint.", "P3"),
+]
+
+
+def assess_urgency(convo: str) -> str:
+    """
+    Assess the urgency of the call based on the FULL conversation so far.
+    Called every turn so urgency can change as new info is revealed.
+    Returns exactly one of: "P0", "P1", "P2", "P3".
+
+    P0 = Immediate life threat (active violence, not breathing, fire with people).
+         -> Transfer to human operator immediately, skip remaining questions.
+    P1 = Urgent (injuries, heart attack, serious accident).
+         -> Fast-track: collect emergency + location only, then transfer.
+    P2 = Moderate (property crime, suspicious activity).
+         -> Normal flow: collect all four fields, generate dispatcher lines, hang up.
+    P3 = Low / non-emergency (noise complaint, cat in tree).
+         -> Normal flow, advise caller this may not be a 911 matter.
+    """
+    few_shot_block = "\n".join(
+        f"Conversation: {c}\nUrgency: {u}" for c, u in FEW_SHOT_URGENCY
+    )
+    prompt = f"""Based on the full conversation, assign exactly one urgency level. Consider the caller's tone, words, and the nature of the situation.
+
+Examples:
+{few_shot_block}
+
+Current conversation:
+{convo}
+
+Respond with ONLY the urgency level (P0, P1, P2, or P3):"""
+    text = _generate(prompt).upper()
+    # Parse: accept "P0", "P1", "P2", "P3" only; default to P2 if model returns garbage.
+    if text in ("P0", "P1", "P2", "P3"):
+        return text
+    # Try to find a valid level in the response (model might say "P0 - immediate...")
+    for level in ("P0", "P1", "P2", "P3"):
+        if level in text:
+            return level
+    return "P2"  # Safe default: moderate, normal flow.
 
 
 def generate_next_dispatcher_line(
@@ -179,7 +266,7 @@ def generate_next_dispatcher_line(
     else:
         instruction = """Get any more details a dispatcher would need and tell the caller what they can do right now to stay safe until help arrives. Do not repeat anything already mentioned. Write only the next dispatcher line (one or two short sentences)."""
 
-    prompt = f"""You are an automated 911 dispatch officer talking to a caller. Here is the conversation so far:
+    prompt = f"""Here is the conversation so far:
 
 {convo}
 
@@ -188,9 +275,7 @@ Your job is to create a report for this emergency; a human dispatcher will follo
 {instruction}
 
 Dispatcher:"""
-    client = _get_client()
-    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    text = (response.text or "").strip()
+    text = _generate(prompt)
     if not text:
         return "Thank you for providing all of this information. A 911 dispatcher will get in contact with you as soon as possible."
     return text
