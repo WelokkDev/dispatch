@@ -1,6 +1,6 @@
 """
-Send a short /api/chat conversation to a running backend so you can see
-the call and transcript appear in the dashboard in real time.
+Send a longer /api/chat conversation to a running backend so you can see
+the call and transcript appear in the dashboard in real time (4+ back-and-forth).
 
 Usage:
   1. Start backend:  python app.py
@@ -23,33 +23,40 @@ except ImportError:
 BASE = "http://127.0.0.1:5001"
 call_id = f"demo-{uuid.uuid4().hex[:8]}"
 
+# P2-style flow: emergency → location → name → phone → a couple of dispatcher lines (4+ turns)
 messages = [
-    "My husband collapsed and he's not breathing. We're at 456 Oak Avenue.",
-    "He's not moving.",
+    "There's been a car accident at 123 Main Street. Two cars.",
+    "123 Main Street, near the gas station.",
+    "My name is Jane Doe.",
+    "555-123-4567.",
+    "Yes, I can stay on the line.",
 ]
 
 def main():
     print(f"Call ID: {call_id}")
-    print(f"Opening dashboard and sending {len(messages)} messages to {BASE}/api/chat ...\n")
+    print(f"Sending {len(messages)} messages to {BASE}/api/chat (watch the dashboard).\n")
     for i, msg in enumerate(messages):
-        print(f"  [{i+1}] Caller: {msg[:50]}...")
+        print(f"  [{i+1}] Caller: {msg[:55]}{'...' if len(msg) > 55 else ''}")
         try:
             r = requests.post(
                 f"{BASE}/api/chat",
                 json={"call_id": call_id, "message": msg},
-                timeout=60,
+                timeout=90,
             )
             r.raise_for_status()
             data = r.json()
-            print(f"      AI: {data.get('spoken_line', '')[:60]}...")
+            spoken = (data.get("spoken_line") or "")[:65]
+            print(f"      AI:  {spoken}{'...' if len(data.get('spoken_line') or '') > 65 else ''}")
             if data.get("transfer") or data.get("hang_up"):
                 print("      [Call ended]")
                 break
         except requests.exceptions.RequestException as e:
             print(f"      Error: {e}")
             sys.exit(1)
-        time.sleep(0.5)
-    print("\nDone. Check the dashboard for the live call and transcript.")
+        # Pause so the UI can show each exchange before the next
+        time.sleep(1.2)
+    print("\nDone. Check the dashboard for the full call and transcript.")
+
 
 if __name__ == "__main__":
     main()

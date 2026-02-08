@@ -16,6 +16,7 @@ import os
 import queue
 import time
 import threading
+from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory, Response
 from twilio.twiml.voice_response import VoiceResponse, Gather
 
@@ -88,6 +89,13 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
         broadcast({"type": "call_created", "call": stub})
 
     state = call_states[call_id]
+
+    # Push caller message first so the UI can show it before the AI reply
+    broadcast({
+        "type": "new_message",
+        "call_id": call_id,
+        "message": {"sender": "caller", "text": voice_input, "time": datetime.utcnow().strftime("%H:%M")},
+    })
 
     state, spoken_line, hang_up, transfer = generate_ai_response(state, voice_input)
     call_states[call_id] = state

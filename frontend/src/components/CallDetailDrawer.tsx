@@ -1,5 +1,8 @@
+import { useState, useEffect, useRef } from "react";
 import type { Call } from "../types";
 import { priorityColors, buttonColors, type Priority } from "../colors";
+
+const STAGGER_MS = 320;
 
 interface CallDetailDrawerProps {
   call: Call | null;
@@ -8,7 +11,49 @@ interface CallDetailDrawerProps {
 }
 
 export default function CallDetailDrawer({ call, isOpen, onClose }: CallDetailDrawerProps) {
+  const [visibleCount, setVisibleCount] = useState(0);
+  const prevCallIdRef = useRef<string | null>(null);
+  const prevTranscriptLenRef = useRef(0);
+  const transcript = call?.transcript ?? [];
+  const firstSender = transcript[0]?.sender ?? null;
+
+  // When switching calls, show all messages immediately
+  useEffect(() => {
+    if (!call) return;
+    if (prevCallIdRef.current !== call.id) {
+      prevCallIdRef.current = call.id;
+      prevTranscriptLenRef.current = transcript.length;
+      setVisibleCount(transcript.length);
+      return;
+    }
+    prevCallIdRef.current = call.id;
+
+    // Transcript was replaced with one that starts with AI (e.g. 911 intro added).
+    // Re-reveal from 0 so we don't snap: first slot was caller, now 911.
+    const prevLen = prevTranscriptLenRef.current;
+    prevTranscriptLenRef.current = transcript.length;
+    if (
+      transcript.length >= 2 &&
+      firstSender === "ai" &&
+      visibleCount === 1 &&
+      prevLen === 1
+    ) {
+      setVisibleCount(0);
+    }
+  }, [call?.id, transcript.length, firstSender, visibleCount]);
+
+  // Stagger-reveal new messages one by one (so they don't all pop in at once)
+  useEffect(() => {
+    if (!call || transcript.length <= visibleCount) return;
+    const id = setInterval(() => {
+      setVisibleCount((prev) => Math.min(prev + 1, transcript.length));
+    }, STAGGER_MS);
+    return () => clearInterval(id);
+  }, [call?.id, transcript.length, visibleCount]);
+
   if (!call) return null;
+
+  const visibleTranscript = transcript.slice(0, visibleCount);
 
   return (
     <>
@@ -82,10 +127,13 @@ export default function CallDetailDrawer({ call, isOpen, onClose }: CallDetailDr
           </div>
         </div>
 
-        {/* Chat Transcript */}
+        {/* Chat Transcript — messages revealed one-by-one with animation */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 call-list-scroll">
-          {call.transcript.map((msg, i) => (
-            <div key={i} className={`flex ${msg.sender === "caller" ? "justify-end" : "justify-start"}`}>
+          {visibleTranscript.map((msg, i) => (
+            <div
+              key={i}
+              className={`flex ${msg.sender === "caller" ? "justify-end" : "justify-start"} transcript-message-in`}
+            >
               <div className="max-w-[85%]">
                 {msg.sender === "ai" && (
                   <div className="flex items-center gap-2 mb-1">

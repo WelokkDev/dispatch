@@ -40,6 +40,24 @@ export default function App() {
         });
         return;
       }
+      if (ev.type === "new_message") {
+        // Only append if we already have messages (e.g. 911 intro). Otherwise wait for
+        // transcript_update so the first exchange arrives as [911, caller, ai] and we
+        // can reveal in order without the first slot snapping from caller to 911.
+        setCalls((prev) =>
+          prev.map((c) => {
+            if (c.id !== ev.call_id) return c;
+            if (c.transcript.length === 0) return c;
+            return { ...c, transcript: [...c.transcript, ev.message] };
+          })
+        );
+        setSelectedCall((prev) => {
+          if (!prev || prev.id !== ev.call_id) return prev;
+          if (prev.transcript.length === 0) return prev;
+          return { ...prev, transcript: [...prev.transcript, ev.message] };
+        });
+        return;
+      }
       if (ev.type === "transcript_update") {
         const update = {
           transcript: ev.transcript,
