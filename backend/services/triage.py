@@ -3,6 +3,11 @@ Triage service: state machine for the dispatch call flow.
 Urgency (P0–P3) is assessed EVERY turn before deciding what to do next.
 P0/P1 can short-circuit the normal collection flow and trigger an operator transfer.
 No Gemini calls here; only calls into services.ai and state updates.
+
+Re-asking policy per priority level:
+  P0: NO re-asking. Extract what you can, transfer immediately.
+  P1: Re-ask emergency (1x) and location (1x), then transfer. Skip name/phone.
+  P2/P3: Re-ask emergency (1x), location (1x), name (1x), phone (1x). Full flow.
 """
 
 from dataclasses import dataclass, field
@@ -30,7 +35,8 @@ class CallState:
     urgency: Optional[str] = None    # Current urgency: P0, P1, P2, P3 (updated every turn)
     transfer: bool = False           # True = call should be transferred to human operator
     count: int = 1                   # Turn count for dispatcher lines (1, 2, 3...)
-    redo: List[int] = field(default_factory=lambda: [0, 0, 0])  # Retries: location, name, phone
+    # Retries: [emergency, location, name, phone]. Each allows max 1 re-ask.
+    redo: List[int] = field(default_factory=lambda: [0, 0, 0, 0])
     convo: str = ""                  # Full transcript: "Dispatcher: ... Caller: ..."
 
 
@@ -42,9 +48,9 @@ def generate_ai_response(state: CallState, voice_input: str) -> tuple:
       1. Append caller speech to convo.
       2. Assess urgency (P0–P3) — runs EVERY turn, can change as caller reveals more.
       3. Branch on urgency:
-         - P0: Immediate transfer. Skip all remaining questions.
-         - P1: Fast-track — collect emergency + location only, then transfer.
-         - P2/P3: Normal flow — collect all four fields, then generate dispatcher lines.
+         - P0: Immediate transfer. No re-asking. Extract what you can from existing convo.
+         - P1: Re-ask emergency + location (1x each), then transfer. Skip name/phone.
+         - P2/P3: Re-ask all fields (1x each). Full collection, then dispatcher lines.
     """
     # -------------------------------------------------------------------------
     # Step 1: Append this caller utterance to the transcript.
@@ -64,76 +70,97 @@ def generate_ai_response(state: CallState, voice_input: str) -> tuple:
     # -------------------------------------------------------------------------
 
     if urgency == "P0":
-        # P0: IMMEDIATE life threat. Don't waste time asking for name/phone.
+        # P0: IMMEDIATE life threat. No re-asking — every second counts.
         # Try to extract emergency and location from what we already have (one
         # quick pass), then transfer immediately.
         return _handle_p0(state)
 
     if urgency == "P1":
-        # P1: Urgent. Collect emergency + location only (skip name/phone), then transfer.
+        # P1: Urgent. Collect emergency + location (with re-asks), skip name/phone,
+        # then transfer.
         return _handle_p1(state)
 
-    # P2 or P3: Normal flow — collect all four fields, then dispatcher lines.
+    # P2 or P3: Normal flow — collect all four fields (with re-asks), then dispatcher lines.
     return _handle_normal(state)
 
 
 # =============================================================================
-# P0 handler: immediate transfer, minimal collection
+# P0 handler: immediate transfer, NO re-asking
 # =============================================================================
 
 def _handle_p0(state: CallState) -> tuple:
     """
     P0 = immediate life threat. We try one quick extraction pass for emergency
     and location (from what the caller already said), then transfer right away.
-    We do NOT ask follow-up questions — every second counts.
+    We do NOT re-ask or ask follow-up questions — every second counts.
     """
     # Try to extract emergency if we don't have it yet (from existing convo only).
     if not state.emergency:
         emergency = extract_emergency(state.convo)
-        state = dataclass_replace(state, emergency=emergency)
+        if emergency != "undefined":
+            state = dataclass_replace(state, emergency=emergency)
+        # If "undefined", that's okay for P0 — we still transfer. The operator
+        # will hear the caller directly.
 
     # Try to extract location if we don't have it yet.
     if not state.location:
         location = extract_location(state.convo)
         if location != "undefined":
             state = dataclass_replace(state, location=location)
-        # If location is "undefined", that's okay for P0 — we still transfer.
+        # If "undefined", that's okay for P0 — we still transfer.
 
-    # Immediately transfer to operator.
+    # Immediately transfer to operator. No re-asking.
     spoken = "Stay on the line. I'm connecting you to an emergency operator right now."
     state = dataclass_replace(state, transfer=True, convo=state.convo + spoken)
     return state, spoken, False, True  # hang_up=False, transfer=True
 
 
 # =============================================================================
-# P1 handler: fast-track — collect emergency + location, then transfer
+# P1 handler: fast-track — collect emergency + location WITH re-asks, then transfer
 # =============================================================================
 
 def _handle_p1(state: CallState) -> tuple:
     """
     P1 = urgent. We need emergency type and location before transferring so the
     operator has context. Skip name and phone — not worth the time.
+    Re-ask emergency once if "undefined" (caller is panicked but hasn't said what's wrong).
+    Re-ask location once if "undefined".
     """
-    # Extract emergency if missing.
+    # --- Extract emergency if missing; allow one re-ask ---
     if not state.emergency:
         emergency = extract_emergency(state.convo)
-        state = dataclass_replace(state, emergency=emergency)
+        if emergency == "undefined" and state.redo[0] < 1:
+            # Caller is panicked but hasn't said what's happening. Re-ask once.
+            spoken = "I can hear you're upset. Can you tell me what's happening? What is the emergency?"
+            state = dataclass_replace(
+                state,
+                redo=[state.redo[0] + 1, state.redo[1], state.redo[2], state.redo[3]],
+                convo=state.convo + spoken,
+            )
+            return state, spoken, False, False
+        # Store whatever we got (even "undefined" on second try — move on).
+        if emergency != "undefined":
+            state = dataclass_replace(state, emergency=emergency)
+        else:
+            state = dataclass_replace(state, emergency="unknown emergency")
         spoken = "Okay, stay calm. Can you tell me your location?"
         state = dataclass_replace(state, convo=state.convo + spoken)
         return state, spoken, False, False  # Continue, need location next.
 
-    # Extract location if missing; allow one re-ask.
+    # --- Extract location if missing; allow one re-ask ---
     if not state.location:
         location = extract_location(state.convo)
-        if location == "undefined" and state.redo[0] < 1:
+        if location == "undefined" and state.redo[1] < 1:
             spoken = "I need you to stay calm. Can you tell me where you are or the nearest landmark?"
             state = dataclass_replace(
                 state,
-                redo=[state.redo[0] + 1, state.redo[1], state.redo[2]],
+                redo=[state.redo[0], state.redo[1] + 1, state.redo[2], state.redo[3]],
                 convo=state.convo + spoken,
             )
             return state, spoken, False, False
-        state = dataclass_replace(state, location=location if location != "undefined" else None)
+        if location != "undefined":
+            state = dataclass_replace(state, location=location)
+        # If still "undefined" after re-ask, transfer anyway.
 
     # We have emergency (and possibly location). Transfer now.
     spoken = "Help is on the way. I'm transferring you to a dispatcher who can assist you further."
@@ -142,19 +169,32 @@ def _handle_p1(state: CallState) -> tuple:
 
 
 # =============================================================================
-# P2/P3 handler: normal flow — collect all four fields, then dispatcher lines
+# P2/P3 handler: normal flow — collect all four fields WITH re-asks
 # =============================================================================
 
 def _handle_normal(state: CallState) -> tuple:
     """
     P2/P3 = moderate or low. Full collection: emergency → location → name →
     number → generate dispatcher lines → eventually hang up.
-    This is the original TriageAI-style flow.
+    Re-ask each field once if "undefined".
     """
-    # --- Extract emergency if missing ---
+    # --- Extract emergency if missing; allow one re-ask ---
     if not state.emergency:
         emergency = extract_emergency(state.convo)
-        state = dataclass_replace(state, emergency=emergency)
+        if emergency == "undefined" and state.redo[0] < 1:
+            # Caller hasn't clearly stated what's wrong. Re-ask once.
+            spoken = "I'm here to help. Can you tell me what's happening? What is the emergency?"
+            state = dataclass_replace(
+                state,
+                redo=[state.redo[0] + 1, state.redo[1], state.redo[2], state.redo[3]],
+                convo=state.convo + spoken,
+            )
+            return state, spoken, False, False
+        # Store whatever we got (even "undefined" on second try — move on).
+        if emergency != "undefined":
+            state = dataclass_replace(state, emergency=emergency)
+        else:
+            state = dataclass_replace(state, emergency="unknown emergency")
         spoken = "Okay, stay calm. Can you tell me your location?"
         state = dataclass_replace(state, convo=state.convo + spoken)
         return state, spoken, False, False
@@ -162,11 +202,11 @@ def _handle_normal(state: CallState) -> tuple:
     # --- Extract location if missing; allow one re-ask ---
     if not state.location:
         location = extract_location(state.convo)
-        if location == "undefined" and state.redo[0] < 1:
+        if location == "undefined" and state.redo[1] < 1:
             spoken = "Okay, stay calm. Tell me your location or where you remember being last?"
             state = dataclass_replace(
                 state,
-                redo=[state.redo[0] + 1, state.redo[1], state.redo[2]],
+                redo=[state.redo[0], state.redo[1] + 1, state.redo[2], state.redo[3]],
                 convo=state.convo + spoken,
             )
             return state, spoken, False, False
@@ -178,11 +218,11 @@ def _handle_normal(state: CallState) -> tuple:
     # --- Extract name if missing; allow one re-ask ---
     if not state.name:
         name = extract_name(state.convo)
-        if name == "undefined" and state.redo[1] < 1:
+        if name == "undefined" and state.redo[2] < 1:
             spoken = "I need you to remain calm; we will get help to you as soon as possible. Can you give me your name again?"
             state = dataclass_replace(
                 state,
-                redo=[state.redo[0], state.redo[1] + 1, state.redo[2]],
+                redo=[state.redo[0], state.redo[1], state.redo[2] + 1, state.redo[3]],
                 convo=state.convo + spoken,
             )
             return state, spoken, False, False
@@ -194,11 +234,11 @@ def _handle_normal(state: CallState) -> tuple:
     # --- Extract phone if missing; allow one re-ask ---
     if not state.number:
         number = extract_phone(state.convo)
-        if number == "undefined" and state.redo[2] < 1:
+        if number == "undefined" and state.redo[3] < 1:
             spoken = "Don't worry, we will get help to you as soon as possible. I need a phone number?"
             state = dataclass_replace(
                 state,
-                redo=[state.redo[0], state.redo[1], state.redo[2] + 1],
+                redo=[state.redo[0], state.redo[1], state.redo[2], state.redo[3] + 1],
                 convo=state.convo + spoken,
             )
             return state, spoken, False, False

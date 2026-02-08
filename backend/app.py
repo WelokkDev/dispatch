@@ -119,6 +119,55 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
     }
 
 
+# =============================================================================
+# Text-based test endpoint: simulate a call via REST instead of Twilio voice.
+# POST /api/chat with JSON: {"call_id": "test-1", "message": "My house is on fire!"}
+# Returns the same dict handle_caller_speech returns so you can see urgency,
+# extraction, transcript, transfer, etc. Use any HTTP client (curl, Postman,
+# or the frontend) to test the full triage flow without a phone call.
+# =============================================================================
+
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    """
+    Text-based test route. Simulates one caller utterance per request.
+    Send JSON: {"call_id": "any-string", "message": "what the caller says"}
+    Returns the full triage result (spoken_line, urgency, fields, transcript, etc.)
+    Use the same call_id across requests to continue the same "call".
+    """
+    data = request.get_json(force=True)
+    call_id = data.get("call_id")
+    message = data.get("message")
+
+    if not call_id or not message:
+        return jsonify({"error": "call_id and message are required"}), 400
+
+    result = handle_caller_speech(call_id, message)
+    return jsonify(result)
+
+
+@app.route("/api/calls", methods=["GET"])
+def get_calls():
+    """
+    Return all active call states. Useful for the frontend dashboard to see
+    every call's urgency, fields, transcript, and status at a glance.
+    """
+    calls = []
+    for cid, state in call_states.items():
+        calls.append({
+            "call_id": cid,
+            "urgency": state.urgency,
+            "emergency": state.emergency,
+            "location": state.location,
+            "name": state.name,
+            "number": state.number,
+            "transfer": state.transfer,
+            "transcript": state.convo,
+            "status": "transferred" if state.transfer else "in_progress",
+        })
+    return jsonify(calls)
+
+
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok", "message": "Backend connected"})
