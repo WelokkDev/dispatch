@@ -36,13 +36,8 @@ export default function MapPanel({ calls, selectedId, onSelectCall }: MapPanelPr
   const mapRef = useRef<MapRef>(null);
   const selectedCall = calls.find((c) => c.id === selectedId);
 
-  // Calculate center from all calls
-  const center = useMemo(() => {
-    if (calls.length === 0) return { lat: 47.6062, lng: -122.3321 }; // Seattle default
-    const avgLat = calls.reduce((sum, c) => sum + c.pin.lat, 0) / calls.length;
-    const avgLng = calls.reduce((sum, c) => sum + c.pin.lng, 0) / calls.length;
-    return { lat: avgLat, lng: avgLng };
-  }, [calls]);
+  // Always start at Kingston, ON (Queen's University area)
+  const KINGSTON = { lat: 44.2253, lng: -76.4951 };
 
   // Fly to selected call
   useEffect(() => {
@@ -61,16 +56,16 @@ export default function MapPanel({ calls, selectedId, onSelectCall }: MapPanelPr
       <Map
         ref={mapRef}
         initialViewState={{
-          longitude: center.lng,
-          latitude: center.lat,
-          zoom: 12,
+          longitude: KINGSTON.lng,
+          latitude: KINGSTON.lat,
+          zoom: 13,
         }}
         style={{ width: "100%", height: "100%" }}
         mapStyle={BASEMAP_STYLE}
         attributionControl={false}
       >
-        {/* Markers */}
-        {calls.map((call) => (
+        {/* Markers — skip calls with no real location (0,0) */}
+        {calls.filter((c) => c.pin.lat !== 0 || c.pin.lng !== 0).map((call) => (
           <Marker
             key={call.id}
             longitude={call.pin.lng}

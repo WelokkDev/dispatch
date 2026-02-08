@@ -118,14 +118,36 @@ def generate_audio(text: str, label: str = "") -> str:
 def precache_fixed_lines():
     """
     Generate audio for ALL fixed dispatcher lines at startup.
-    Runs up to 4 TTS calls in parallel to speed up startup.
+    If WAV files already exist on disk from a previous run, loads them
+    instantly — zero API calls, zero delay on restart.
+    Only calls Gradium for files that are missing.
     """
+    # Step 1: Load any cached files that already exist on disk.
+    missing_indices = []
+    for i, line in enumerate(FIXED_LINES):
+        filename = f"cached_{i:02d}.wav"
+        filepath = os.path.join(AUDIO_DIR, filename)
+        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            _audio_cache[line] = filename
+        else:
+            missing_indices.append(i)
+
+    loaded = len(FIXED_LINES) - len(missing_indices)
+    if loaded > 0:
+        print(f"[Startup] Loaded {loaded}/{len(FIXED_LINES)} cached lines from disk.")
+
+    if not missing_indices:
+        print(f"[Startup] All {len(FIXED_LINES)} lines already cached. Ready for calls!")
+        return
+
+    # Step 2: Generate only the missing lines via Gradium.
     key = GRADIUM_API_KEY or os.getenv("GRADIUM_API_KEY")
     if not key:
         print("[Startup] WARNING: GRADIUM_API_KEY not set, skipping pre-cache.")
         return
 
-    print(f"[Startup] Pre-caching {len(FIXED_LINES)} fixed dispatcher lines...")
+    missing_lines = [FIXED_LINES[i] for i in missing_indices]
+    print(f"[Startup] Generating {len(missing_indices)} missing lines via Gradium...")
     t_start = time.time()
 
     async def _gen_one(line: str) -> bytes:
@@ -143,27 +165,28 @@ def precache_fixed_lines():
         )
         return result.raw_data
 
-    async def _precache_all():
-        sem = asyncio.Semaphore(4)  # max 4 concurrent WebSocket connections
+    async def _precache_missing():
+        sem = asyncio.Semaphore(2)  # Gradium limit is 5 sessions; stay safe
 
         async def _limited(line: str) -> bytes:
             async with sem:
                 return await _gen_one(line)
 
-        return await asyncio.gather(*[_limited(line) for line in FIXED_LINES])
+        return await asyncio.gather(*[_limited(line) for line in missing_lines])
 
-    results = asyncio.run(_precache_all())
+    results = asyncio.run(_precache_missing())
 
-    for i, (line, audio_bytes) in enumerate(zip(FIXED_LINES, results)):
-        filename = f"cached_{i:02d}.wav"
+    for idx, audio_bytes in zip(missing_indices, results):
+        line = FIXED_LINES[idx]
+        filename = f"cached_{idx:02d}.wav"
         filepath = os.path.join(AUDIO_DIR, filename)
         with open(filepath, "wb") as f:
             f.write(audio_bytes)
         _audio_cache[line] = filename
-        print(f"  [{i+1}/{len(FIXED_LINES)}] {line[:55]}...")
+        print(f"  [{idx+1}/{len(FIXED_LINES)}] {line[:55]}...")
 
     elapsed = time.time() - t_start
-    print(f"[Startup] Pre-cached {len(_audio_cache)} lines in {elapsed:.1f}s. Ready for calls!")
+    print(f"[Startup] Generated {len(missing_indices)} lines in {elapsed:.1f}s. Ready for calls!")
 
 
 def cleanup_audio(filename: str):

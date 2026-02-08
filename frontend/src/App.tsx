@@ -66,7 +66,18 @@ export default function App() {
           ...(ev.priority != null && { priority: ev.priority }),
           ...(ev.incidentType != null && { incidentType: ev.incidentType }),
           ...(ev.locationLabel != null && { locationLabel: ev.locationLabel, address: ev.locationLabel }),
+          ...(ev.pin != null && { pin: ev.pin }),
         };
+        setCalls((prev) =>
+          prev.map((c) => (c.id === ev.call_id ? { ...c, ...update } : c))
+        );
+        setSelectedCall((prev) =>
+          prev && prev.id === ev.call_id ? { ...prev, ...update } : prev
+        );
+      }
+
+      if (ev.type === "summary_update") {
+        const update = { summary: ev.summary };
         setCalls((prev) =>
           prev.map((c) => (c.id === ev.call_id ? { ...c, ...update } : c))
         );

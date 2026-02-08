@@ -37,16 +37,22 @@ def _generate(prompt: str) -> str:
     Send a prompt to Gemini with the shared SYSTEM_INSTRUCTION.
     Every call in this file goes through here so the system prompt is
     always applied. Returns the raw response text (stripped).
+
+    NEVER raises — returns empty string on any failure so the call keeps going.
     """
-    client = _get_client()
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-        ),
-    )
-    return (response.text or "").strip()
+    try:
+        client = _get_client()
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION,
+            ),
+        )
+        return (response.text or "").strip()
+    except Exception as e:
+        print(f"[Gemini ERROR] {type(e).__name__}: {e}")
+        return ""
 
 
 # -----------------------------------------------------------------------------

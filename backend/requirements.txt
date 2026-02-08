@@ -5,3 +5,4 @@ google-genai>=1.0.0
 python-dotenv>=1.0.0
 pymongo[srv]>=3.12
 gradium
+requests>=2.31.0

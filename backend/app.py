@@ -16,6 +16,7 @@ import os
 import queue
 import time
 import threading
+import requests as http_requests
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory, Response
 from twilio.twiml.voice_response import VoiceResponse, Gather
@@ -34,11 +35,80 @@ from events import broadcast, subscribe, unsubscribe
 
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Geocoding: convert text address → lat/lng via OpenStreetMap Nominatim (free)
+# ═══════════════════════════════════════════════════════════════════════════════
+_geocode_cache: dict[str, dict] = {}
+
+NO_PIN = {"lat": 0, "lng": 0}  # No location yet — frontend hides (0,0) markers
+
+def geocode_location(address: str) -> dict:
+    """
+    Convert a text address to {"lat": ..., "lng": ...} using Nominatim.
+    Results are cached in memory so repeated lookups are instant.
+    Returns Kingston, ON center as fallback if geocoding fails.
+    """
+    if not address or address.lower() in ("undefined", "unknown"):
+        return NO_PIN
+
+    # Check cache first
+    cache_key = address.strip().lower()
+    if cache_key in _geocode_cache:
+        return _geocode_cache[cache_key]
+
+    try:
+        resp = http_requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={
+                "q": f"{address}, Kingston, Ontario, Canada",
+                "format": "json",
+                "limit": 1,
+            },
+            headers={"User-Agent": "dispatch-911-hackathon/1.0"},
+            timeout=3,
+        )
+        results = resp.json()
+        if results:
+            pin = {"lat": float(results[0]["lat"]), "lng": float(results[0]["lon"])}
+            _geocode_cache[cache_key] = pin
+            print(f"[Geocode] '{address}' → {pin['lat']:.4f}, {pin['lng']:.4f}")
+            return pin
+    except Exception as e:
+        print(f"[Geocode] Failed for '{address}': {e}")
+
+    _geocode_cache[cache_key] = NO_PIN
+    return NO_PIN
+
+
 app = Flask(__name__)
 CORS(app)
 
 # Register blueprints
 app.register_blueprint(calls_bp)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Global error handler — Twilio must ALWAYS get valid TwiML, never a 500
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.errorhandler(Exception)
+def handle_any_error(e):
+    """Last-resort safety net. If ANY route throws, log it and return safe TwiML
+    for Twilio paths or a JSON error for API paths."""
+    import traceback
+    print(f"[GLOBAL ERROR] {type(e).__name__}: {e}")
+    traceback.print_exc()
+
+    path = request.path or ""
+    if path.startswith("/voice"):
+        # Twilio route — must return valid TwiML
+        response = VoiceResponse()
+        response.say("We are experiencing a temporary issue. Please hold.")
+        response.redirect("/voice", method="POST")
+        return str(response), 200, {"Content-Type": "text/xml"}
+
+    # API route — return JSON error
+    return jsonify({"error": "Internal server error", "detail": str(e)}), 500
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -73,7 +143,7 @@ def _live_stub(call_id: str, number: str = None) -> dict:
         "keyFacts": [],
         "elapsed": "00:00",
         "aiHandling": True,
-        "pin": {"lat": 0, "lng": 0},
+        "pin": NO_PIN,
     }
 
 
@@ -107,6 +177,10 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
     else:
         status = "in_progress"
 
+    # Geocode the location to get real map coordinates
+    location_text = (state.location or "").replace("undefined", "")
+    pin = geocode_location(location_text) if location_text else NO_PIN
+
     result = {
         "spoken_line": spoken_line,
         "hang_up": hang_up,
@@ -120,6 +194,7 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
         "call_id": call_id,
         "status": status,
         "summary": "",
+        "pin": pin,
     }
 
     transcript_list = parse_transcript(state.convo)
@@ -132,7 +207,8 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
         "aiHandling": not (hang_up or transfer),
         "priority": _urgency_to_priority(state.urgency),
         "incidentType": (state.emergency or "").replace("undefined", ""),
-        "locationLabel": (state.location or "").replace("undefined", ""),
+        "locationLabel": location_text,
+        "pin": pin,
     })
 
     # Generate summary + persist to DB in background so we don't block the response.
@@ -148,6 +224,12 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
             print(f"[Summary] {summary}")
             result["summary"] = summary
             persist_call_at_end(call_id, result)
+            # Push summary to frontend once it's ready
+            broadcast({
+                "type": "summary_update",
+                "call_id": call_id,
+                "summary": summary,
+            })
         threading.Thread(target=_finalize, daemon=True).start()
 
     return result
@@ -175,31 +257,50 @@ def voice_incoming():
     """
     Twilio hits this when someone calls your number.
     Plays the pre-cached greeting, then listens for caller speech.
+    NEVER returns 500 — always gives the caller valid TwiML.
     """
-    call_sid = request.form.get("CallSid", "unknown")
-    caller = request.form.get("From", "unknown")
-    print(f"[Twilio] Incoming call {call_sid} from {caller}")
+    try:
+        call_sid = request.form.get("CallSid", "unknown")
+        caller = request.form.get("From", "unknown")
+        print(f"[Twilio] Incoming call {call_sid} from {caller}")
 
-    # generate_audio() returns instantly from cache for fixed lines.
-    audio_file = generate_audio(GREETING_TEXT, label="greeting")
-    audio_url = f"{request.url_root}audio/{audio_file}"
+        # generate_audio() returns instantly from cache for fixed lines.
+        audio_file = generate_audio(GREETING_TEXT, label="greeting")
+        audio_url = f"{request.url_root}audio/{audio_file}"
 
-    response = VoiceResponse()
-    gather = Gather(
-        input="speech",
-        action="/voice/respond",
-        method="POST",
-        speech_timeout="2",
-        language="en-US",
-    )
-    gather.play(audio_url)
-    response.append(gather)
+        response = VoiceResponse()
+        gather = Gather(
+            input="speech",
+            action="/voice/respond",
+            method="POST",
+            speech_timeout="2",
+            language="en-US",
+        )
+        gather.play(audio_url)
+        response.append(gather)
 
-    # Fallback if caller says nothing — repeat the greeting
-    response.redirect("/voice", method="POST")
+        # Fallback if caller says nothing — repeat the greeting
+        response.redirect("/voice", method="POST")
 
-    print(f"[Twilio] Responding with greeting: {audio_url}")
-    return str(response), 200, {"Content-Type": "text/xml"}
+        print(f"[Twilio] Responding with greeting: {audio_url}")
+        return str(response), 200, {"Content-Type": "text/xml"}
+
+    except Exception as e:
+        # SAFETY NET: if anything fails, use Twilio's built-in <Say> so the
+        # caller still hears a greeting instead of "application error".
+        print(f"[voice_incoming ERROR] {type(e).__name__}: {e}")
+        response = VoiceResponse()
+        gather = Gather(
+            input="speech",
+            action="/voice/respond",
+            method="POST",
+            speech_timeout="2",
+            language="en-US",
+        )
+        gather.say("911, what is your emergency?")
+        response.append(gather)
+        response.redirect("/voice", method="POST")
+        return str(response), 200, {"Content-Type": "text/xml"}
 
 
 @app.route("/voice/respond", methods=["POST"])
@@ -207,6 +308,7 @@ def voice_respond():
     """
     Twilio hits this after <Gather> captures the caller's speech.
     We run the triage pipeline and respond with the next dispatcher line.
+    NEVER returns 500 — always gives the caller valid TwiML.
     """
     call_sid = request.form.get("CallSid", "unknown")
     speech_result = request.form.get("SpeechResult", "")
@@ -226,54 +328,82 @@ def voice_respond():
         response.redirect("/voice", method="POST")
         return str(response), 200, {"Content-Type": "text/xml"}
 
-    # Run the triage pipeline (Gemini calls)
-    t0 = time.time()
-    result = handle_caller_speech(call_sid, speech_result)
-    t_triage = time.time() - t0
+    try:
+        # Run the triage pipeline (Gemini calls)
+        t0 = time.time()
+        result = handle_caller_speech(call_sid, speech_result)
+        t_triage = time.time() - t0
 
-    spoken_line = result["spoken_line"]
-    hang_up = result["hang_up"]
-    transfer = result["transfer"]
+        spoken_line = result["spoken_line"]
+        hang_up = result["hang_up"]
+        transfer = result["transfer"]
 
-    print(f"[Triage] urgency={result['urgency']}  hang_up={hang_up}  transfer={transfer}  ({t_triage:.1f}s)")
-    print(f"[Triage] spoken_line: {spoken_line}")
+        print(f"[Triage] urgency={result['urgency']}  hang_up={hang_up}  transfer={transfer}  ({t_triage:.1f}s)")
+        print(f"[Triage] spoken_line: {spoken_line}")
 
-    # Generate response audio via Gradium TTS
-    t1 = time.time()
-    audio_file = generate_audio(spoken_line, label="dispatch")
-    t_tts = time.time() - t1
+        # Generate response audio via Gradium TTS.
+        # If Gradium fails (cache miss + API down), fall back to Twilio <Say>.
+        audio_url = None
+        try:
+            t1 = time.time()
+            audio_file = generate_audio(spoken_line, label="dispatch")
+            t_tts = time.time() - t1
+            audio_url = f"{request.url_root}audio/{audio_file}"
+            print(f"[Timing] triage={t_triage:.1f}s  tts={t_tts:.1f}s  total={t_triage + t_tts:.1f}s")
+        except Exception as e:
+            print(f"[Gradium ERROR] TTS failed, using <Say> fallback: {e}")
 
-    audio_url = f"{request.url_root}audio/{audio_file}"
-    print(f"[Timing] triage={t_triage:.1f}s  tts={t_tts:.1f}s  total={t_triage + t_tts:.1f}s")
+        response = VoiceResponse()
 
-    response = VoiceResponse()
+        if hang_up:
+            if audio_url:
+                response.play(audio_url)
+            else:
+                response.say(spoken_line)
+            response.hangup()
 
-    if hang_up:
-        response.play(audio_url)
-        response.hangup()
+        elif transfer:
+            if audio_url:
+                response.play(audio_url)
+            else:
+                response.say(spoken_line)
+            # Transfer message
+            try:
+                transfer_msg = "Transferring you now. Please stay on the line."
+                transfer_file = generate_audio(transfer_msg, label="transfer")
+                transfer_url = f"{request.url_root}audio/{transfer_file}"
+                response.play(transfer_url)
+            except Exception:
+                response.say("Transferring you now. Please stay on the line.")
+            response.hangup()
 
-    elif transfer:
-        response.play(audio_url)
-        # Use cached Gradium audio instead of Twilio's robotic <Say>.
-        transfer_msg = "Transferring you now. Please stay on the line."
-        transfer_file = generate_audio(transfer_msg, label="transfer")
-        transfer_url = f"{request.url_root}audio/{transfer_file}"
-        response.play(transfer_url)
-        response.hangup()
+        else:
+            gather = Gather(
+                input="speech",
+                action="/voice/respond",
+                method="POST",
+                speech_timeout="2",
+                language="en-US",
+            )
+            if audio_url:
+                gather.play(audio_url)
+            else:
+                gather.say(spoken_line)
+            response.append(gather)
+            response.redirect("/voice", method="POST")
 
-    else:
-        gather = Gather(
-            input="speech",
-            action="/voice/respond",
-            method="POST",
-            speech_timeout="2",
-            language="en-US",
-        )
-        gather.play(audio_url)
-        response.append(gather)
+        return str(response), 200, {"Content-Type": "text/xml"}
+
+    except Exception as e:
+        # SAFETY NET: if triage or anything else explodes, don't kill the call.
+        # Ask the caller to repeat — this gives the system another chance.
+        print(f"[voice_respond CRITICAL ERROR] {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        response = VoiceResponse()
+        response.say("I'm sorry, could you repeat that?")
         response.redirect("/voice", method="POST")
-
-    return str(response), 200, {"Content-Type": "text/xml"}
+        return str(response), 200, {"Content-Type": "text/xml"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

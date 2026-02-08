@@ -26,6 +26,12 @@ export type SSEEvent =
       priority?: Call["priority"];
       incidentType?: string;
       locationLabel?: string;
+      pin?: { lat: number; lng: number };
+    }
+  | {
+      type: "summary_update";
+      call_id: string;
+      summary: string;
     };
 
 /**

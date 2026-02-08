@@ -75,7 +75,7 @@ def _state_to_call_doc(call_id: str, state_data: dict, now: datetime) -> dict:
         "keyFacts": [],
         "elapsed": "00:00",
         "aiHandling": not state_data.get("transfer", False),
-        "pin": {"lat": 0, "lng": 0},
+        "pin": state_data.get("pin", {"lat": 0, "lng": 0}),
         "createdAt": now,
         "updatedAt": now,
     }
