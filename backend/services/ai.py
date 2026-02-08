@@ -203,6 +203,8 @@ FEW_SHOT_URGENCY = [
     # P1: serious but not immediately life-threatening
     ("Caller: There's been a car accident, someone looks hurt.", "P1"),
     ("Caller: I think my neighbor is having a heart attack.", "P1"),
+    ("Caller: There's a fire at a store on the corner.", "P1"),
+    ("Caller: I see smoke coming from a building.", "P1"),
     # P2: moderate, property crime, non-injury situations
     ("Caller: Someone is breaking into my neighbor's car.", "P2"),
     ("Caller: There's a suspicious person walking around.", "P2"),

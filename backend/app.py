@@ -12,6 +12,8 @@ Text-based /api/chat endpoint is kept for testing without a phone.
 """
 
 import os
+import time
+import threading
 from flask import Flask, request, jsonify, send_from_directory
 from twilio.twiml.voice_response import VoiceResponse, Gather
 
@@ -61,17 +63,6 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
     else:
         status = "in_progress"
 
-    # Generate incident summary when the call ends
-    summary = ""
-    if hang_up or transfer:
-        summary = generate_incident_summary(
-            convo=state.convo,
-            emergency=state.emergency or "",
-            location=state.location or "",
-            urgency=state.urgency or "",
-        )
-        print(f"[Summary] {summary}")
-
     result = {
         "spoken_line": spoken_line,
         "hang_up": hang_up,
@@ -84,10 +75,24 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
         "transcript": state.convo,
         "call_id": call_id,
         "status": status,
-        "summary": summary,
+        "summary": "",
     }
-    if result["hang_up"] or result["transfer"]:
-        persist_call_at_end(call_id, result)
+
+    # Generate summary + persist to DB in background so we don't block the response.
+    # The caller hears the final line immediately instead of waiting.
+    if hang_up or transfer:
+        def _finalize():
+            summary = generate_incident_summary(
+                convo=state.convo,
+                emergency=state.emergency or "",
+                location=state.location or "",
+                urgency=state.urgency or "",
+            )
+            print(f"[Summary] {summary}")
+            result["summary"] = summary
+            persist_call_at_end(call_id, result)
+        threading.Thread(target=_finalize, daemon=True).start()
+
     return result
 
 
@@ -107,20 +112,28 @@ def serve_audio(filename):
 
 GREETING_TEXT = "911, what is your emergency?"
 
+# Pre-generate greeting audio once on startup so incoming calls have zero TTS delay.
+_greeting_audio_file = None
+
+def _get_greeting_audio():
+    global _greeting_audio_file
+    if _greeting_audio_file is None:
+        print("[Startup] Pre-generating greeting audio...")
+        _greeting_audio_file = generate_audio(GREETING_TEXT, label="greeting")
+    return _greeting_audio_file
+
 
 @app.route("/voice", methods=["POST"])
 def voice_incoming():
     """
     Twilio hits this when someone calls your number.
-    We generate the greeting audio via Gradium TTS, then ask Twilio to play
-    it and listen for the caller's speech.
+    Plays the pre-cached greeting, then listens for caller speech.
     """
     call_sid = request.form.get("CallSid", "unknown")
     caller = request.form.get("From", "unknown")
     print(f"[Twilio] Incoming call {call_sid} from {caller}")
 
-    # Generate greeting audio via Gradium TTS
-    audio_file = generate_audio(GREETING_TEXT, label="greeting")
+    audio_file = _get_greeting_audio()
     audio_url = f"{request.url_root}audio/{audio_file}"
 
     response = VoiceResponse()
@@ -128,7 +141,7 @@ def voice_incoming():
         input="speech",
         action="/voice/respond",
         method="POST",
-        speech_timeout="auto",
+        speech_timeout="2",
         language="en-US",
     )
     gather.play(audio_url)
@@ -154,52 +167,52 @@ def voice_respond():
     print(f"[Twilio] CallSid={call_sid}  Speech=\"{speech_result}\"  Confidence={confidence}")
 
     if not speech_result:
-        # No speech detected — ask again
         response = VoiceResponse()
         response.say("I didn't catch that. Can you repeat?")
         response.redirect("/voice", method="POST")
         return str(response), 200, {"Content-Type": "text/xml"}
 
-    # Run the triage pipeline
+    # Run the triage pipeline (Gemini calls)
+    t0 = time.time()
     result = handle_caller_speech(call_sid, speech_result)
+    t_triage = time.time() - t0
+
     spoken_line = result["spoken_line"]
     hang_up = result["hang_up"]
     transfer = result["transfer"]
 
-    print(f"[Triage] urgency={result['urgency']}  hang_up={hang_up}  transfer={transfer}")
+    print(f"[Triage] urgency={result['urgency']}  hang_up={hang_up}  transfer={transfer}  ({t_triage:.1f}s)")
     print(f"[Triage] spoken_line: {spoken_line}")
 
     # Generate response audio via Gradium TTS
+    t1 = time.time()
     audio_file = generate_audio(spoken_line, label="dispatch")
+    t_tts = time.time() - t1
+
     audio_url = f"{request.url_root}audio/{audio_file}"
+    print(f"[Timing] triage={t_triage:.1f}s  tts={t_tts:.1f}s  total={t_triage + t_tts:.1f}s")
 
     response = VoiceResponse()
 
     if hang_up:
-        # Final line, then hang up
         response.play(audio_url)
         response.hangup()
 
     elif transfer:
-        # Play the transfer message, then end (in production you'd <Dial> an operator)
         response.play(audio_url)
         response.say("Transferring you now. Please stay on the line.")
-        # Uncomment and set a real operator number to actually transfer:
-        # response.dial("+1XXXXXXXXXX")
         response.hangup()
 
     else:
-        # Normal turn — play response, then gather next speech
         gather = Gather(
             input="speech",
             action="/voice/respond",
             method="POST",
-            speech_timeout="auto",
+            speech_timeout="2",
             language="en-US",
         )
         gather.play(audio_url)
         response.append(gather)
-        # Fallback if no speech
         response.redirect("/voice", method="POST")
 
     return str(response), 200, {"Content-Type": "text/xml"}
