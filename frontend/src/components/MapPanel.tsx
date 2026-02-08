@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef } from "react";
 import Map, { Marker, type MapRef } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Call } from "../types";
@@ -9,6 +9,7 @@ const BASEMAP_STYLE = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.j
 interface MapPanelProps {
   calls: Call[];
   selectedId: string | null;
+  selectedCall: Call | null;
   onSelectCall: (call: Call) => void;
 }
 
@@ -32,16 +33,18 @@ function MapPinSvg({ color, isSelected }: { color: string; isSelected: boolean }
   );
 }
 
-export default function MapPanel({ calls, selectedId, onSelectCall }: MapPanelProps) {
+export default function MapPanel({ calls, selectedId, selectedCall, onSelectCall }: MapPanelProps) {
   const mapRef = useRef<MapRef>(null);
-  const selectedCall = calls.find((c) => c.id === selectedId);
 
   // Always start at Kingston, ON (Queen's University area)
   const KINGSTON = { lat: 44.2253, lng: -76.4951 };
 
-  // Fly to selected call
+  // Fly to selected call — only if pin is in the Kingston area
+  const isNearKingston = (pin: { lat: number; lng: number }) =>
+    pin.lat > 44.1 && pin.lat < 44.4 && pin.lng > -76.7 && pin.lng < -76.3;
+
   useEffect(() => {
-    if (selectedCall && mapRef.current) {
+    if (selectedCall && mapRef.current && isNearKingston(selectedCall.pin)) {
       mapRef.current.flyTo({
         center: [selectedCall.pin.lng, selectedCall.pin.lat],
         zoom: 14,
@@ -64,8 +67,8 @@ export default function MapPanel({ calls, selectedId, onSelectCall }: MapPanelPr
         mapStyle={BASEMAP_STYLE}
         attributionControl={false}
       >
-        {/* Markers — skip calls with no real location (0,0) */}
-        {calls.filter((c) => c.pin.lat !== 0 || c.pin.lng !== 0).map((call) => (
+        {/* Markers — only show calls with pins in the Kingston area */}
+        {calls.filter((c) => isNearKingston(c.pin)).map((call) => (
           <Marker
             key={call.id}
             longitude={call.pin.lng}

@@ -150,6 +150,7 @@ export default function App() {
       <MapPanel
         calls={calls}
         selectedId={selectedCall?.id ?? null}
+        selectedCall={selectedCall}
         onSelectCall={handleSelectCall}
       />
 
