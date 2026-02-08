@@ -57,18 +57,19 @@ def _generate(prompt: str) -> str:
 # Emergency: short label (under 5 words) for the nature of the emergency.
 # Returns "undefined" if the caller hasn't clearly stated what's happening.
 FEW_SHOT_EMERGENCY = [
-    # (convo_snippet, expected_output)
-    ("Caller: My dad fell and he's not moving.", "fall, unresponsive person"),
-    ("Caller: There's a fire in the kitchen!", "kitchen fire"),
-    ("Caller: Someone broke in and I'm hiding.", "break-in, intruder"),
-    ("Caller: HELP! Please help me!", "undefined"),  # Caller is panicked but hasn't said what's wrong
-    ("Caller: I need someone here now!", "undefined"),  # Urgent but no specific emergency stated
+    # (convo_snippet, expected_output) — key words UPPERCASE, filler lowercase
+    ("Caller: My dad fell and he's not moving.", "FALL, UNRESPONSIVE person"),
+    ("Caller: There's a fire in the kitchen!", "KITCHEN FIRE"),
+    ("Caller: Someone broke in and I'm hiding.", "BREAK-IN, INTRUDER"),
+    ("Caller: HELP! Please help me!", "undefined"),
+    ("Caller: I need someone here now!", "undefined"),
 ]
 
 # Location: address or place, or "undefined" if not given.
 FEW_SHOT_LOCATION = [
-    ("Caller: I'm at 123 Main Street.", "123 Main Street"),
-    ("Caller: I don't know the address, just near the gas station.", "near gas station"),
+    # key words UPPERCASE, filler lowercase
+    ("Caller: I'm at 123 Main Street.", "123 MAIN STREET"),
+    ("Caller: I don't know the address, just near the gas station.", "near GAS STATION"),
     ("Caller: Just send help now! I can't think.", "undefined"),
 ]
 
@@ -98,7 +99,7 @@ def extract_emergency(convo: str) -> str:
     few_shot_block = "\n".join(
         f"Conversation: {c}\nEmergency type: {e}" for c, e in FEW_SHOT_EMERGENCY
     )
-    prompt = f"""Extract only the nature of the emergency from the conversation, in 5 words or fewer. If the caller has NOT clearly stated what the emergency is, respond with exactly: undefined
+    prompt = f"""Extract only the nature of the emergency from the conversation, in 5 words or fewer. UPPERCASE the key nouns and subjects, keep filler words lowercase. If the caller has NOT clearly stated what the emergency is, respond with exactly: undefined
 
 Examples:
 {few_shot_block}
@@ -121,7 +122,7 @@ def extract_location(convo: str) -> str:
     few_shot_block = "\n".join(
         f"Conversation: {c}\nLocation: {e}" for c, e in FEW_SHOT_LOCATION
     )
-    prompt = f"""Extract the caller's location or address from the conversation. If the caller does not give any location, respond with exactly: undefined
+    prompt = f"""Extract the caller's location or address from the conversation. UPPERCASE the key nouns like street names, landmarks, and places, keep filler words lowercase. If the caller does not give any location, respond with exactly: undefined
 
 Examples:
 {few_shot_block}
@@ -130,8 +131,8 @@ Current conversation:
 {convo}
 
 Location (address/place or "undefined"):"""
-    text = _generate(prompt).lower()
-    if "undefined" in text or not text:
+    text = _generate(prompt)
+    if "undefined" in text.lower() or not text:
         return "undefined"
     return text
 
@@ -247,6 +248,41 @@ Respond with ONLY the urgency level (P0, P1, P2, or P3):"""
         if level in text:
             return level
     return "P2"  # Safe default: moderate, normal flow.
+
+
+def generate_incident_summary(convo: str, emergency: str = "", location: str = "", urgency: str = "") -> str:
+    """
+    Generate a concise incident summary (1–3 sentences) from the full transcript.
+    Called once when the call ends (hang_up or transfer).
+    """
+    context_parts = []
+    if emergency and emergency not in ("undefined", "unknown emergency"):
+        context_parts.append(f"Emergency type: {emergency}")
+    if location and location != "undefined":
+        context_parts.append(f"Location: {location}")
+    if urgency:
+        context_parts.append(f"Urgency: {urgency}")
+    context_block = "\n".join(context_parts) if context_parts else "No structured data extracted."
+
+    prompt = f"""Read the following 911 call transcript and write a brief incident summary for the dispatch log.
+
+Rules:
+- Minimum 1 sentence, maximum 3 sentences.
+- Be factual and concise. Include what happened, where, and any critical details.
+- Write in third person past tense (e.g. "Caller reported...").
+- Do NOT include the caller's name or phone number.
+
+Known facts:
+{context_block}
+
+Transcript:
+{convo}
+
+Incident summary:"""
+    text = _generate(prompt)
+    if not text:
+        return "No summary available."
+    return text
 
 
 def generate_next_dispatcher_line(

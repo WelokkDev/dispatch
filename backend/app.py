@@ -21,6 +21,7 @@ load_dotenv()
 from flask_cors import CORS
 
 from services.triage import CallState, generate_ai_response
+from services.ai import generate_incident_summary
 from services.voice import generate_audio, AUDIO_DIR
 from routes.calls import calls_bp
 from db import persist_call_at_end
@@ -60,6 +61,17 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
     else:
         status = "in_progress"
 
+    # Generate incident summary when the call ends
+    summary = ""
+    if hang_up or transfer:
+        summary = generate_incident_summary(
+            convo=state.convo,
+            emergency=state.emergency or "",
+            location=state.location or "",
+            urgency=state.urgency or "",
+        )
+        print(f"[Summary] {summary}")
+
     result = {
         "spoken_line": spoken_line,
         "hang_up": hang_up,
@@ -72,6 +84,7 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
         "transcript": state.convo,
         "call_id": call_id,
         "status": status,
+        "summary": summary,
     }
     if result["hang_up"] or result["transfer"]:
         persist_call_at_end(call_id, result)

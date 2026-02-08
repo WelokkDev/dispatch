@@ -104,8 +104,35 @@ def main():
         print_result(result)
 
         if result["transfer"] or result["hang_up"]:
-            print(f"[Call {call_id} ended — ", end="")
-            print("transferred to operator]" if result["transfer"] else "completed]")
+            outcome = "transferred to operator" if result["transfer"] else "completed"
+            print(f"[Call {call_id} ended — {outcome}]")
+            print()
+            print("  ═══════════════════════════════════════════")
+            print("  CALL REPORT")
+            print("  ═══════════════════════════════════════════")
+            print(f"  Call ID:    {result.get('call_id', call_id)}")
+            print(f"  Status:     {result['status']}")
+            print(f"  Urgency:    {result['urgency'] or '—'}")
+            print(f"  Emergency:  {result['emergency'] or '—'}")
+            print(f"  Location:   {result['location'] or '—'}")
+            print(f"  Name:       {result['name'] or '—'}")
+            print(f"  Phone:      {result['number'] or '—'}")
+            print(f"  Transfer:   {result['transfer']}")
+            print(f"  Hang up:    {result['hang_up']}")
+            print(f"  ─────────────────────────────────────────")
+            summary = result.get("summary", "")
+            if summary:
+                print(f"  Summary:    {summary}")
+            else:
+                print(f"  Summary:    —")
+            print(f"  ─────────────────────────────────────────")
+            print(f"  Transcript:")
+            for line in result.get("transcript", "").strip().split("\n"):
+                line = line.strip()
+                if line:
+                    print(f"    {line}")
+            print(f"  ═══════════════════════════════════════════")
+            print()
             print(f"[Type 'new' for a new call or 'quit' to exit]\n")
 
 

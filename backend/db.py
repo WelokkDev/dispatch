@@ -71,7 +71,7 @@ def _state_to_call_doc(call_id: str, state_data: dict, now: datetime) -> dict:
         "confidence": 0,
         "inServiceArea": True,
         "transcript": transcript,
-        "summary": "",
+        "summary": state_data.get("summary", ""),
         "keyFacts": [],
         "elapsed": "00:00",
         "aiHandling": not state_data.get("transfer", False),
