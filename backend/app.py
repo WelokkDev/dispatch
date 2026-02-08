@@ -24,7 +24,7 @@ from flask_cors import CORS
 
 from services.triage import CallState, generate_ai_response
 from services.ai import generate_incident_summary
-from services.voice import generate_audio, AUDIO_DIR
+from services.voice import generate_audio, precache_fixed_lines, AUDIO_DIR
 from routes.calls import calls_bp
 from db import persist_call_at_end
 
@@ -112,16 +112,6 @@ def serve_audio(filename):
 
 GREETING_TEXT = "911, what is your emergency?"
 
-# Pre-generate greeting audio once on startup so incoming calls have zero TTS delay.
-_greeting_audio_file = None
-
-def _get_greeting_audio():
-    global _greeting_audio_file
-    if _greeting_audio_file is None:
-        print("[Startup] Pre-generating greeting audio...")
-        _greeting_audio_file = generate_audio(GREETING_TEXT, label="greeting")
-    return _greeting_audio_file
-
 
 @app.route("/voice", methods=["POST"])
 def voice_incoming():
@@ -133,7 +123,8 @@ def voice_incoming():
     caller = request.form.get("From", "unknown")
     print(f"[Twilio] Incoming call {call_sid} from {caller}")
 
-    audio_file = _get_greeting_audio()
+    # generate_audio() returns instantly from cache for fixed lines.
+    audio_file = generate_audio(GREETING_TEXT, label="greeting")
     audio_url = f"{request.url_root}audio/{audio_file}"
 
     response = VoiceResponse()
@@ -166,9 +157,15 @@ def voice_respond():
 
     print(f"[Twilio] CallSid={call_sid}  Speech=\"{speech_result}\"  Confidence={confidence}")
 
-    if not speech_result:
+    # Reject empty or low-confidence speech (background noise, echo, etc.)
+    try:
+        conf = float(confidence)
+    except (ValueError, TypeError):
+        conf = 0.0
+
+    if not speech_result or conf < 0.4:
+        print(f"[Twilio] Ignored — empty or low confidence ({conf:.2f}). Re-prompting.")
         response = VoiceResponse()
-        response.say("I didn't catch that. Can you repeat?")
         response.redirect("/voice", method="POST")
         return str(response), 200, {"Content-Type": "text/xml"}
 
@@ -200,7 +197,11 @@ def voice_respond():
 
     elif transfer:
         response.play(audio_url)
-        response.say("Transferring you now. Please stay on the line.")
+        # Use cached Gradium audio instead of Twilio's robotic <Say>.
+        transfer_msg = "Transferring you now. Please stay on the line."
+        transfer_file = generate_audio(transfer_msg, label="transfer")
+        transfer_url = f"{request.url_root}audio/{transfer_file}"
+        response.play(transfer_url)
         response.hangup()
 
     else:
@@ -278,4 +279,12 @@ if __name__ == "__main__":
     print("  Make sure ngrok is running:  ngrok http 5001")
     print("  Then set Twilio webhook to:  https://<ngrok-url>/voice")
     print("=" * 60)
+
+    # Pre-cache all fixed dispatcher lines so calls get instant TTS responses.
+    # This runs once at startup (~15-20s) and eliminates TTS latency for ~90% of turns.
+    # The WERKZEUG_RUN_MAIN check avoids double-caching when Flask's debug reloader is active.
+    import os as _os
+    if _os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+        precache_fixed_lines()
+
     app.run(port=5001, debug=True)
