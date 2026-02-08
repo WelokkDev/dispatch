@@ -42,14 +42,15 @@ _geocode_cache: dict[str, dict] = {}
 
 NO_PIN = {"lat": 0, "lng": 0}  # No location yet — frontend hides (0,0) markers
 
-def geocode_location(address: str) -> dict:
+def geocode_location(address: str) -> tuple[dict, int]:
     """
-    Convert a text address to {"lat": ..., "lng": ...} using Nominatim.
+    Convert a text address to ({"lat": ..., "lng": ...}, confidence_pct) using Nominatim.
     Results are cached in memory so repeated lookups are instant.
-    Returns Kingston, ON center as fallback if geocoding fails.
+    Returns (NO_PIN, 0) as fallback if geocoding fails or address is invalid.
+    Confidence is derived from Nominatim's 'importance' field (0-1 → 0-100%).
     """
     if not address or address.lower() in ("undefined", "unknown"):
-        return NO_PIN
+        return NO_PIN, 0
 
     # Check cache first
     cache_key = address.strip().lower()
@@ -69,15 +70,19 @@ def geocode_location(address: str) -> dict:
         )
         results = resp.json()
         if results:
-            pin = {"lat": float(results[0]["lat"]), "lng": float(results[0]["lon"])}
-            _geocode_cache[cache_key] = pin
-            print(f"[Geocode] '{address}' → {pin['lat']:.4f}, {pin['lng']:.4f}")
-            return pin
+            hit = results[0]
+            pin = {"lat": float(hit["lat"]), "lng": float(hit["lon"])}
+            # Nominatim 'importance' is 0-1; convert to 0-100 percentage
+            importance = float(hit.get("importance", 0.5))
+            confidence = min(100, max(0, round(importance * 100)))
+            _geocode_cache[cache_key] = (pin, confidence)
+            print(f"[Geocode] '{address}' → {pin['lat']:.4f}, {pin['lng']:.4f} ({confidence}% confidence)")
+            return pin, confidence
     except Exception as e:
         print(f"[Geocode] Failed for '{address}': {e}")
 
-    _geocode_cache[cache_key] = NO_PIN
-    return NO_PIN
+    _geocode_cache[cache_key] = (NO_PIN, 0)
+    return NO_PIN, 0
 
 
 app = Flask(__name__)
@@ -177,9 +182,9 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
     else:
         status = "in_progress"
 
-    # Geocode the location to get real map coordinates
+    # Geocode the location to get real map coordinates + confidence
     location_text = (state.location or "").replace("undefined", "")
-    pin = geocode_location(location_text) if location_text else NO_PIN
+    pin, geo_confidence = geocode_location(location_text) if location_text else (NO_PIN, 0)
 
     result = {
         "spoken_line": spoken_line,
@@ -195,6 +200,7 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
         "status": status,
         "summary": "",
         "pin": pin,
+        "confidence": geo_confidence,
     }
 
     transcript_list = parse_transcript(state.convo)
@@ -209,6 +215,7 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
         "incidentType": (state.emergency or "").replace("undefined", ""),
         "locationLabel": location_text,
         "pin": pin,
+        "confidence": geo_confidence,
     })
 
     # Generate summary + persist to DB in background so we don't block the response.

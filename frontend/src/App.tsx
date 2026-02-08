@@ -67,6 +67,7 @@ export default function App() {
           ...(ev.incidentType != null && { incidentType: ev.incidentType }),
           ...(ev.locationLabel != null && { locationLabel: ev.locationLabel, address: ev.locationLabel }),
           ...(ev.pin != null && { pin: ev.pin }),
+          ...(ev.confidence != null && { confidence: ev.confidence }),
         };
         setCalls((prev) =>
           prev.map((c) => (c.id === ev.call_id ? { ...c, ...update } : c))
