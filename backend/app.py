@@ -23,6 +23,8 @@ from flask_cors import CORS
 from services.triage import CallState, generate_ai_response
 from services.voice import generate_audio, AUDIO_DIR
 from routes.calls import calls_bp
+from db import persist_call_at_end
+
 
 
 app = Flask(__name__)
@@ -58,7 +60,7 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
     else:
         status = "in_progress"
 
-    return {
+    result = {
         "spoken_line": spoken_line,
         "hang_up": hang_up,
         "transfer": transfer,
@@ -71,6 +73,9 @@ def handle_caller_speech(call_id: str, voice_input: str) -> dict:
         "call_id": call_id,
         "status": status,
     }
+    if result["hang_up"] or result["transfer"]:
+        persist_call_at_end(call_id, result)
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -208,9 +213,13 @@ def chat():
     return jsonify(result)
 
 
-@app.route("/api/calls", methods=["GET"])
-def get_calls():
-    """Return all active call states for the frontend dashboard."""
+@app.route("/api/active-calls", methods=["GET"])
+def get_active_calls():
+    """
+    Return all active in-memory call states. This shows the raw triage
+    state for calls currently being handled by the AI.
+    Note: /api/calls (Blueprint) returns persisted MongoDB data for the dashboard.
+    """
     calls = []
     for cid, state in call_states.items():
         calls.append({
