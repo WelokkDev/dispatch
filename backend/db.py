@@ -44,6 +44,7 @@ def _state_to_call_doc(call_id: str, state_data: dict, now: datetime) -> dict:
     emergency = state_data.get("emergency") or ""
     if emergency == "undefined":
         emergency = ""
+    emergency = emergency.strip().title()
     location = state_data.get("location") or ""
     if location == "undefined":
         location = ""

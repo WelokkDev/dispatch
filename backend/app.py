@@ -213,7 +213,7 @@ def handle_caller_speech(call_id: str, voice_input: str, caller_phone: str = Non
         "status": status_display,
         "aiHandling": not (hang_up or transfer),
         "priority": _urgency_to_priority(state.urgency),
-        "incidentType": (state.emergency or "").replace("undefined", ""),
+        "incidentType": (state.emergency or "").replace("undefined", "").strip().title(),
         "locationLabel": location_text,
         "pin": pin,
         "confidence": geo_confidence,
