@@ -273,9 +273,13 @@ def index():
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("  Dispatch backend starting on http://localhost:5001")
-    print("  Make sure ngrok is running:  ngrok http 5001")
-    print("  Then set Twilio webhook to:  https://<ngrok-url>/voice")
-    print("=" * 60)
-    app.run(port=5001, debug=True)
+    port = int(os.environ.get("PORT", 5001))
+    # On Render, bind to 0.0.0.0 and use PORT; disable reloader so the process listens on all interfaces
+    debug = os.environ.get("FLASK_DEBUG", "false").lower() in ("1", "true")
+    if not debug:
+        print("=" * 60)
+        print(f"  Dispatch backend starting on http://0.0.0.0:{port}")
+        print("=" * 60)
+    else:
+        print("  [Dev] Debug mode; ngrok + Twilio webhook to /voice")
+    app.run(host="0.0.0.0", port=port, debug=debug)
