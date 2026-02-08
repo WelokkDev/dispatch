@@ -12,7 +12,7 @@ export default function CallList({ calls, selectedId, onSelect }: CallListProps)
   const [filter, setFilter] = useState<PriorityFilter>("All");
   const [search, setSearch] = useState("");
 
-  const filters: PriorityFilter[] = ["All", "P0", "P1", "P2", "P3"];
+  const filters: PriorityFilter[] = ["All", "P1", "P2", "P3", "P4"];
 
   const filtered = calls.filter((c) => {
     if (filter !== "All" && c.priority !== filter) return false;

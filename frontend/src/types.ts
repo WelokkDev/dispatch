@@ -8,7 +8,7 @@ export interface TranscriptMessage {
 export interface Call {
   id: string;
   numberMasked: string;
-  priority: "P0" | "P1" | "P2" | "P3";
+  priority: "P1" | "P2" | "P3" | "P4";
   incidentType: string;
   incidentIcon: string;
   status: string;
@@ -29,4 +29,4 @@ export interface Call {
 
 
 
-export type PriorityFilter = "All" | "P0" | "P1" | "P2" | "P3";
+export type PriorityFilter = "All" | "P1" | "P2" | "P3" | "P4";

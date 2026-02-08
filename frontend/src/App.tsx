@@ -1,14 +1,34 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import IconSidebar from "./components/IconSidebar";
 import CallList from "./components/CallList";
 import MapPanel from "./components/MapPanel";
 import CallDetailDrawer from "./components/CallDetailDrawer";
-import { calls } from "./data";
+import { fetchCalls } from "./api";
 import type { Call } from "./types";
 
 export default function App() {
+  const [calls, setCalls] = useState<Call[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedCall, setSelectedCall] = useState<Call | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Fetch calls from API on mount
+  useEffect(() => {
+    async function loadCalls() {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await fetchCalls();
+        setCalls(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load calls");
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadCalls();
+  }, []);
 
   const handleSelectCall = (call: Call) => {
     setSelectedCall(call);
@@ -18,6 +38,41 @@ export default function App() {
   const handleCloseDrawer = () => {
     setDrawerOpen(false);
   };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-[#f0f2f7]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-3 border-slate-300 border-t-blue-500 rounded-full animate-spin" />
+          <p className="text-sm text-slate-500">Loading calls...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-[#f0f2f7]">
+        <div className="flex flex-col items-center gap-3 max-w-md text-center">
+          <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+            <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <p className="text-sm text-slate-700 font-medium">Failed to load calls</p>
+          <p className="text-xs text-slate-500">{error}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="mt-2 px-4 py-2 text-sm font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-[#f0f2f7]">

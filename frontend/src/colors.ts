@@ -12,14 +12,14 @@
 
 // ===========================================
 // PRIORITY COLORS
-// P0 = Critical (red)
-// P1 = High (amber/orange)
-// P2 = Medium (blue)
-// P3 = Low (slate/gray)
+// P1 = Critical (red) - MOST URGENT
+// P2 = High (amber/orange)
+// P3 = Medium (blue)
+// P4 = Low (slate/gray) - LEAST URGENT
 // ===========================================
 
 export const priorityColors = {
-  P0: {
+  P1: {
     solid: "#ef4444",       // Main color (pins, badges)
     solidHover: "#dc2626",  // Hover state
     bg: "#fef2f2",          // Light background
@@ -27,7 +27,7 @@ export const priorityColors = {
     border: "#fecaca",      // Border color
     text: "#b91c1c",        // Text on light bg
   },
-  P1: {
+  P2: {
     solid: "#f59e0b",
     solidHover: "#d97706",
     bg: "#fffbeb",
@@ -35,7 +35,7 @@ export const priorityColors = {
     border: "#fde68a",
     text: "#b45309",
   },
-  P2: {
+  P3: {
     solid: "#3b82f6",
     solidHover: "#2563eb",
     bg: "#eff6ff",
@@ -43,7 +43,7 @@ export const priorityColors = {
     border: "#bfdbfe",
     text: "#1d4ed8",
   },
-  P3: {
+  P4: {
     solid: "#94a3b8",
     solidHover: "#64748b",
     bg: "#f8fafc",

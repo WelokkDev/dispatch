@@ -3,3 +3,4 @@ flask-cors>=4.0.0
 twilio>=8.0.0
 google-genai>=1.0.0
 python-dotenv>=1.0.0
+pymongo[srv]>=3.12

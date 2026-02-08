@@ -1,7 +1,6 @@
-import os
 import uuid
 from datetime import datetime
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from twilio.twiml.voice_response import VoiceResponse
 """
 Dispatch backend: Flask app, health/api routes, and call handling.
@@ -12,12 +11,16 @@ and will use handle_caller_speech(call_id, voice_input) to get the next line and
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask, jsonify
 from flask_cors import CORS
 
 from services.triage import CallState, generate_ai_response
+from routes.calls import calls_bp
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for frontend requests
+
+# Register blueprints
+app.register_blueprint(calls_bp)
 
 # Mock database to store call metadata
 call_logs = {}
